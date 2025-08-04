@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (c) 2025 Your Name
+# Copyright (c) 2025 sindricn
 # Licensed under the MIT License
 
 # 检查是否安装了 whiptail
