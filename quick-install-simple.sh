@@ -107,7 +107,7 @@ download_main_script() {
 # 下载核心脚本
 download_core_scripts() {
     echo -e "${BLUE}下载核心脚本...${NC}"
-    
+
     local scripts=(
         "install.sh"
         "config.sh"
@@ -116,20 +116,30 @@ download_core_scripts() {
         "advanced.sh"
         "node-info.sh"
     )
-    
+
     local success=0
     local total=${#scripts[@]}
-    
+    local failed_scripts=()
+
     for script in "${scripts[@]}"; do
+        echo "  下载 $script..."
         if curl -fsSL "$RAW_URL/scripts/$script" -o "scripts/$script"; then
             chmod +x "scripts/$script"
             ((success++))
+            echo -e "    ${GREEN}✓ $script 下载成功${NC}"
         else
-            echo -e "${YELLOW}  警告: $script 下载失败${NC}"
+            echo -e "    ${RED}✗ $script 下载失败${NC}"
+            failed_scripts+=("$script")
         fi
     done
-    
+
     echo -e "${GREEN}✓ 核心脚本下载完成 ($success/$total)${NC}"
+
+    if [[ ${#failed_scripts[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}失败的脚本: ${failed_scripts[*]}${NC}"
+        echo -e "${YELLOW}这可能会影响某些功能的使用${NC}"
+    fi
+
     return 0
 }
 
@@ -162,13 +172,54 @@ download_templates() {
 # 创建快捷方式
 create_shortcuts() {
     echo -e "${BLUE}创建快捷方式...${NC}"
-    
+
     if ln -sf "$INSTALL_DIR/hy2-manager.sh" "$BIN_DIR/hy2-manager" && \
        ln -sf "$INSTALL_DIR/hy2-manager.sh" "$BIN_DIR/s-hy2"; then
         echo -e "${GREEN}✓ 快捷方式创建成功${NC}"
         return 0
     else
         echo -e "${RED}✗ 快捷方式创建失败${NC}"
+        return 1
+    fi
+}
+
+# 验证安装
+verify_installation() {
+    echo -e "${BLUE}验证安装...${NC}"
+
+    local issues=0
+
+    # 检查主脚本
+    if [[ -f "$INSTALL_DIR/hy2-manager.sh" && -x "$INSTALL_DIR/hy2-manager.sh" ]]; then
+        echo -e "${GREEN}✓ 主脚本存在且可执行${NC}"
+    else
+        echo -e "${RED}✗ 主脚本不存在或不可执行${NC}"
+        ((issues++))
+    fi
+
+    # 检查核心脚本
+    local required_scripts=("install.sh" "config.sh" "service.sh")
+    for script in "${required_scripts[@]}"; do
+        if [[ -f "$INSTALL_DIR/scripts/$script" ]]; then
+            echo -e "${GREEN}✓ $script 存在${NC}"
+        else
+            echo -e "${RED}✗ $script 不存在${NC}"
+            ((issues++))
+        fi
+    done
+
+    # 检查快捷方式
+    if [[ -L "$BIN_DIR/s-hy2" ]]; then
+        echo -e "${GREEN}✓ s-hy2 快捷方式存在${NC}"
+    else
+        echo -e "${YELLOW}⚠ s-hy2 快捷方式不存在${NC}"
+    fi
+
+    if [[ $issues -eq 0 ]]; then
+        echo -e "${GREEN}✓ 安装验证通过${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}⚠ 发现 $issues 个问题，但安装基本完成${NC}"
         return 1
     fi
 }
@@ -191,6 +242,21 @@ show_completion() {
     echo "2. 选择 '1. 安装 Hysteria2'"
     echo "3. 选择 '2. 一键快速配置'"
     echo ""
+
+    # 询问是否立即运行
+    if [[ -t 0 ]]; then
+        echo -n -e "${YELLOW}是否立即运行 s-hy2? [y/N]: ${NC}"
+        read -r run_now
+        if [[ $run_now =~ ^[Yy]$ ]]; then
+            echo ""
+            echo -e "${BLUE}正在启动 s-hy2...${NC}"
+            exec "$INSTALL_DIR/hy2-manager.sh"
+        else
+            echo -e "${BLUE}安装完成，稍后可运行 'sudo s-hy2' 开始使用${NC}"
+        fi
+    else
+        echo -e "${BLUE}安装完成，请运行 'sudo s-hy2' 开始使用${NC}"
+    fi
 }
 
 # 卸载函数
@@ -216,11 +282,27 @@ main() {
     
     echo -e "${YELLOW}即将安装 Hysteria2 配置管理脚本${NC}"
     echo ""
-    echo -n -e "${YELLOW}是否继续安装? [Y/n]: ${NC}"
-    read -r confirm
-    if [[ $confirm =~ ^[Nn]$ ]]; then
-        echo -e "${BLUE}取消安装${NC}"
-        exit 0
+    echo -e "${BLUE}此脚本将会:${NC}"
+    echo "• 检测系统环境"
+    echo "• 安装基本依赖"
+    echo "• 下载脚本文件"
+    echo "• 创建快捷命令 's-hy2'"
+    echo "• 设置执行权限"
+    echo ""
+
+    # 检查是否通过管道运行
+    if [[ -t 0 ]]; then
+        # 交互模式
+        echo -n -e "${YELLOW}是否继续安装? [Y/n]: ${NC}"
+        read -r confirm
+        if [[ $confirm =~ ^[Nn]$ ]]; then
+            echo -e "${BLUE}取消安装${NC}"
+            exit 0
+        fi
+    else
+        # 管道模式，自动确认
+        echo -e "${YELLOW}检测到管道模式，自动开始安装...${NC}"
+        sleep 2
     fi
     
     echo ""
@@ -255,7 +337,10 @@ main() {
     if ! create_shortcuts; then
         echo -e "${YELLOW}警告: 快捷方式创建失败${NC}"
     fi
-    
+
+    # 验证安装
+    verify_installation
+
     show_completion
 }
 

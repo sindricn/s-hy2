@@ -16,16 +16,16 @@
 ### 一键安装 (推荐)
 
 ```bash
-# 一键安装到服务器
-curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install.sh | sudo bash
+# 修复版安装 (推荐)
+curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/install-fixed.sh | sudo bash
 
 # 运行脚本
 sudo s-hy2
 ```
 
-### 安装问题排除
+### 其他安装方式
 
-如果安装过程中遇到问题，可以尝试：
+如果上述安装遇到问题，可以尝试：
 
 ```bash
 # 1. 运行测试脚本检查环境
@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/test-install.sh
 # 2. 使用简化版安装
 curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install-simple.sh | sudo bash
 
-# 3. 使用调试模式安装
+# 3. 使用原版安装 (调试模式)
 curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install.sh | sudo bash -s -- --debug
 ```
 

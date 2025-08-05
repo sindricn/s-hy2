@@ -105,9 +105,11 @@ install_hysteria() {
     echo -e "${BLUE}正在安装 Hysteria2...${NC}"
     if [[ -f "$SCRIPTS_DIR/install.sh" ]]; then
         source "$SCRIPTS_DIR/install.sh"
-        install_hysteria_main
+        install_hysteria2
     else
         echo -e "${RED}错误: 安装脚本不存在${NC}"
+        echo "脚本路径: $SCRIPTS_DIR/install.sh"
+        echo "请检查脚本是否正确下载"
         read -p "按回车键继续..."
     fi
 }
