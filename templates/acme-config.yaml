@@ -1,0 +1,66 @@
+# Hysteria2 配置文件 - ACME 自动证书模式
+# 此模板用于使用 ACME 自动申请和续期 SSL 证书
+# 需要有效的域名和邮箱地址
+
+# 监听地址和端口
+# 默认监听 443 端口，可以修改为其他端口
+listen: :443
+
+# ACME 自动证书配置
+acme:
+  domains:
+    - your.domain.net  # 替换为你的域名
+  email: your@email.com  # 替换为你的邮箱地址
+  # ca: letsencrypt  # 可选：指定 CA，默认为 Let's Encrypt
+  # altHttpPort: 8080  # 可选：HTTP 验证端口
+  # altTlsAlpnPort: 8443  # 可选：TLS-ALPN 验证端口
+
+# 认证配置
+auth:
+  type: password
+  password: Se7RAuFZ8Lzg  # 替换为你的密码
+
+# 伪装配置
+masquerade:
+  type: proxy
+  proxy:
+    url: https://news.ycombinator.com/  # 伪装网站 URL
+    rewriteHost: true
+
+# 可选：混淆配置
+# 取消注释以下配置来启用混淆
+# obfs:
+#   type: salamander
+#   salamander:
+#     password: cry_me_a_r1ver  # 混淆密码
+
+# 可选：带宽限制
+# bandwidth:
+#   up: 1 gbps    # 上行带宽限制
+#   down: 1 gbps  # 下行带宽限制
+
+# 可选：忽略客户端带宽
+# ignoreClientBandwidth: false
+
+# 可选：UDP 转发超时
+# udpIdleTimeout: 60s
+
+# 可选：禁用 UDP
+# disableUDP: false
+
+# 可选：ACL 规则文件
+# acl: /path/to/acl.txt
+
+# 可选：出站配置
+# outbounds:
+#   - name: direct
+#     type: direct
+#   - name: block
+#     type: block
+
+# 可选：路由规则
+# routing:
+#   rules:
+#     - outbound: block
+#       geoip:
+#         - cn

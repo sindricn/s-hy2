@@ -1,0 +1,91 @@
+# Hysteria2 客户端配置文件示例
+# 请根据服务器配置修改相应参数
+
+# 服务器配置
+server: your.server.com:443  # 替换为你的服务器地址和端口
+
+# 认证配置
+auth: your_password  # 替换为服务器设置的密码
+
+# TLS 配置
+tls:
+  sni: your.server.com  # 替换为你的域名
+  insecure: false  # ACME 证书模式设为 false，自签名证书模式设为 true
+
+# 混淆配置 (如果服务器启用了混淆)
+# obfs:
+#   type: salamander
+#   salamander:
+#     password: obfs_password  # 替换为服务器设置的混淆密码
+
+# 带宽配置
+bandwidth:
+  up: 100 mbps    # 上行带宽
+  down: 100 mbps  # 下行带宽
+
+# SOCKS5 代理
+socks5:
+  listen: 127.0.0.1:1080
+
+# HTTP 代理
+http:
+  listen: 127.0.0.1:8080
+
+# TUN 模式 (需要管理员权限)
+# tun:
+#   name: hysteria-tun
+#   mtu: 1500
+#   timeout: 5s
+
+# 路由规则
+# routing:
+#   rules:
+#     # 直连中国大陆 IP
+#     - outbound: direct
+#       geoip:
+#         - cn
+#     # 直连私有 IP
+#     - outbound: direct
+#       ipCIDR:
+#         - 10.0.0.0/8
+#         - 172.16.0.0/12
+#         - 192.168.0.0/16
+#         - 127.0.0.0/8
+
+# 出站配置
+# outbounds:
+#   - name: direct
+#     type: direct
+
+# DNS 配置
+# dns:
+#   servers:
+#     - addr: 8.8.8.8:53
+#       timeout: 5s
+#     - addr: 1.1.1.1:53
+#       timeout: 5s
+
+# 日志配置
+# log:
+#   level: info
+#   output: hysteria-client.log
+
+# ACL 规则文件
+# acl: client-acl.txt
+
+# 懒惰模式 (仅在需要时连接)
+# lazy: true
+
+# 快乐眼球 (IPv4/IPv6 双栈)
+# happyEyeballs:
+#   enabled: true
+#   delay: 300ms
+
+# 配置说明：
+# 1. server: 服务器地址，格式为 host:port
+# 2. auth: 认证密码，需与服务器配置一致
+# 3. tls.sni: SNI 域名，通常与服务器域名一致
+# 4. tls.insecure: 是否忽略证书错误，自签名证书需设为 true
+# 5. obfs: 混淆配置，需与服务器配置一致
+# 6. socks5/http: 本地代理监听地址
+# 7. bandwidth: 客户端带宽限制

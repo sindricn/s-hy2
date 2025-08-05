@@ -1,0 +1,126 @@
+# Hysteria2 高级配置文件模板
+# 包含所有可用的配置选项和详细说明
+
+# 监听地址和端口
+listen: :443
+
+# TLS 配置 (二选一)
+# 选项1: ACME 自动证书
+acme:
+  domains:
+    - your.domain.net
+  email: your@email.com
+  ca: letsencrypt  # 可选：zerossl, letsencrypt
+  altHttpPort: 8080
+  altTlsAlpnPort: 8443
+
+# 选项2: 手动证书
+# tls:
+#   cert: /path/to/cert.pem
+#   key: /path/to/key.pem
+
+# 认证配置
+auth:
+  type: password
+  password: your_password
+  # 或者使用用户名密码认证
+  # type: userpass
+  # userpass:
+  #   user1: pass1
+  #   user2: pass2
+
+# 伪装配置
+masquerade:
+  type: proxy
+  proxy:
+    url: https://news.ycombinator.com/
+    rewriteHost: true
+  # 或者使用文件伪装
+  # type: file
+  # file:
+  #   dir: /var/www/html
+
+# 混淆配置
+obfs:
+  type: salamander
+  salamander:
+    password: obfs_password
+
+# 带宽限制
+bandwidth:
+  up: 1 gbps
+  down: 1 gbps
+
+# 忽略客户端带宽设置
+ignoreClientBandwidth: false
+
+# UDP 相关配置
+udpIdleTimeout: 60s
+disableUDP: false
+
+# ACL 访问控制
+acl: /etc/hysteria/acl.txt
+
+# 出站配置
+outbounds:
+  - name: direct
+    type: direct
+  - name: block
+    type: block
+  - name: socks5
+    type: socks5
+    socks5:
+      addr: 127.0.0.1:1080
+      username: user
+      password: pass
+
+# 路由规则
+routing:
+  rules:
+    # 阻止中国大陆 IP
+    - outbound: block
+      geoip:
+        - cn
+    # 直连私有 IP
+    - outbound: direct
+      ipCIDR:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    # 特定域名走代理
+    - outbound: socks5
+      domain:
+        - example.com
+        - "*.google.com"
+
+# 日志配置
+log:
+  level: info  # debug, info, warn, error
+  output: /var/log/hysteria.log
+
+# 性能调优
+resolver:
+  type: udp
+  tcp:
+    addr: 8.8.8.8:53
+    timeout: 4s
+  udp:
+    addr: 8.8.8.8:53
+    timeout: 4s
+  tls:
+    addr: 8.8.8.8:853
+    timeout: 10s
+    sni: dns.google
+    insecure: false
+  https:
+    addr: https://1.1.1.1/dns-query
+    timeout: 10s
+
+# 流量统计
+trafficStats:
+  listen: :8080
+  secret: stats_secret
+
+# 其他高级选项
+disableMTUDiscovery: false
+hopInterval: 30s

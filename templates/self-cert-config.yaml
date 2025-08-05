@@ -1,0 +1,62 @@
+# Hysteria2 配置文件 - 自签名证书模式
+# 此模板用于使用自签名证书，无需域名即可快速部署
+# 适合测试环境或无法使用域名的场景
+
+# 监听地址和端口
+# 默认监听 443 端口，可以修改为其他端口
+listen: :443
+
+# TLS 证书配置
+tls:
+  cert: /etc/hysteria/server.crt  # 证书文件路径
+  key: /etc/hysteria/server.key   # 私钥文件路径
+
+# 认证配置
+auth:
+  type: password
+  password: Se7RAuFZ8Lzg  # 替换为你的密码
+
+# 伪装配置
+masquerade:
+  type: proxy
+  proxy:
+    url: https://cdn.jsdelivr.net/  # 伪装网站 URL
+    rewriteHost: true
+
+# 可选：混淆配置
+# 取消注释以下配置来启用混淆
+# obfs:
+#   type: salamander
+#   salamander:
+#     password: cry_me_a_r1ver  # 混淆密码
+
+# 可选：带宽限制
+# bandwidth:
+#   up: 1 gbps    # 上行带宽限制
+#   down: 1 gbps  # 下行带宽限制
+
+# 可选：忽略客户端带宽
+# ignoreClientBandwidth: false
+
+# 可选：UDP 转发超时
+# udpIdleTimeout: 60s
+
+# 可选：禁用 UDP
+# disableUDP: false
+
+# 可选：ACL 规则文件
+# acl: /path/to/acl.txt
+
+# 可选：出站配置
+# outbounds:
+#   - name: direct
+#     type: direct
+#   - name: block
+#     type: block
+
+# 可选：路由规则
+# routing:
+#   rules:
+#     - outbound: block
+#       geoip:
+#         - cn
