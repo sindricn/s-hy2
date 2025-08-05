@@ -23,6 +23,15 @@ curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/install-fixed.s
 sudo s-hy2
 ```
 
+### 安装问题修复
+
+如果安装后遇到问题（如"安装脚本不存在"），可以运行修复脚本：
+
+```bash
+# 修复已安装的 s-hy2
+curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/fix-installation.sh | sudo bash
+```
+
 ### 其他安装方式
 
 如果上述安装遇到问题，可以尝试：
@@ -37,6 +46,11 @@ curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install-s
 # 3. 使用原版安装 (调试模式)
 curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install.sh | sudo bash -s -- --debug
 ```
+
+### 交互模式说明
+
+- **管道运行** (`curl ... | sudo bash`): 自动安装，不等待用户输入
+- **本地运行** (`sudo bash script.sh`): 交互模式，等待用户确认
 
 ### 手动安装
 

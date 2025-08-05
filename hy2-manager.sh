@@ -4,7 +4,8 @@
 # 版本: 1.0.0
 # 作者: Hysteria2 Manager
 
-set -e
+# 移除 set -e 以避免脚本意外退出
+# set -e
 
 # 颜色定义
 RED='\033[0;31m'
@@ -15,8 +16,20 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# 脚本目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 脚本目录 - 处理符号链接
+if [[ -L "${BASH_SOURCE[0]}" ]]; then
+    # 如果是符号链接，获取真实路径
+    SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+else
+    # 如果不是符号链接，使用当前路径
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+# 如果脚本在 /usr/local/bin 中运行，假设安装在 /opt/s-hy2
+if [[ "$SCRIPT_DIR" == "/usr/local/bin" ]]; then
+    SCRIPT_DIR="/opt/s-hy2"
+fi
+
 SCRIPTS_DIR="$SCRIPT_DIR/scripts"
 TEMPLATES_DIR="$SCRIPT_DIR/templates"
 
@@ -103,13 +116,30 @@ show_status() {
 # 安装 Hysteria2
 install_hysteria() {
     echo -e "${BLUE}正在安装 Hysteria2...${NC}"
+
+    # 调试信息
+    echo "调试信息:"
+    echo "  脚本目录: $SCRIPT_DIR"
+    echo "  功能脚本目录: $SCRIPTS_DIR"
+    echo "  安装脚本路径: $SCRIPTS_DIR/install.sh"
+    echo ""
+
     if [[ -f "$SCRIPTS_DIR/install.sh" ]]; then
+        echo -e "${GREEN}找到安装脚本，正在执行...${NC}"
         source "$SCRIPTS_DIR/install.sh"
         install_hysteria2
     else
         echo -e "${RED}错误: 安装脚本不存在${NC}"
-        echo "脚本路径: $SCRIPTS_DIR/install.sh"
-        echo "请检查脚本是否正确下载"
+        echo ""
+        echo "详细信息:"
+        echo "  期望路径: $SCRIPTS_DIR/install.sh"
+        echo "  实际情况: $(ls -la "$SCRIPTS_DIR/" 2>/dev/null || echo "目录不存在")"
+        echo ""
+        echo "可能的解决方案:"
+        echo "1. 重新运行安装脚本"
+        echo "2. 检查安装是否完整"
+        echo "3. 手动下载缺失的脚本文件"
+        echo ""
         read -p "按回车键继续..."
     fi
 }
