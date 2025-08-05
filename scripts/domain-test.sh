@@ -57,33 +57,51 @@ test_domain_latency() {
     fi
 }
 
-# 测试所有域名并排序
-test_all_domains() {
+# 测试所有域名并排序 (静默版本，只输出结果)
+test_all_domains_silent() {
     local results=()
-    local total=${#DOMAINS[@]}
-    local current=0
-    
-    echo -e "${BLUE}正在测试 $total 个域名的延迟...${NC}"
-    echo ""
-    
+
     for domain in "${DOMAINS[@]}"; do
-        current=$((current + 1))
-        printf "\r${BLUE}进度: $current/$total - 测试 $domain${NC}"
-        
         if result=$(test_domain_latency "$domain" 3); then
             results+=("$result")
         fi
     done
-    
-    echo ""
-    echo ""
-    
+
     if [[ ${#results[@]} -eq 0 ]]; then
-        echo -e "${RED}所有域名测试失败，请检查网络连接${NC}"
         return 1
     fi
-    
-    # 排序结果
+
+    # 排序结果并输出
+    printf '%s\n' "${results[@]}" | sort -n
+}
+
+# 测试所有域名并排序 (带进度显示)
+test_all_domains() {
+    local results=()
+    local total=${#DOMAINS[@]}
+    local current=0
+
+    echo -e "${BLUE}正在测试 $total 个域名的延迟...${NC}" >&2
+    echo "" >&2
+
+    for domain in "${DOMAINS[@]}"; do
+        current=$((current + 1))
+        printf "\r${BLUE}进度: $current/$total - 测试 $domain${NC}" >&2
+
+        if result=$(test_domain_latency "$domain" 3); then
+            results+=("$result")
+        fi
+    done
+
+    echo "" >&2
+    echo "" >&2
+
+    if [[ ${#results[@]} -eq 0 ]]; then
+        echo -e "${RED}所有域名测试失败，请检查网络连接${NC}" >&2
+        return 1
+    fi
+
+    # 排序结果并输出
     printf '%s\n' "${results[@]}" | sort -n
 }
 
@@ -114,7 +132,7 @@ get_best_domain() {
 
 # 获取最优域名名称
 get_best_domain_name() {
-    local best_result=$(test_all_domains | head -n 1)
+    local best_result=$(test_all_domains_silent | head -n 1)
     if [[ -n "$best_result" ]]; then
         echo "$best_result" | awk '{print $2}'
     else
@@ -126,29 +144,43 @@ get_best_domain_name() {
 interactive_domain_selection() {
     echo -e "${BLUE}域名延迟测试和选择${NC}"
     echo ""
-    
-    # 显示测试结果
-    local results=$(test_all_domains | head -n 10)
-    
+
+    # 显示进度信息
+    echo -e "${BLUE}正在测试域名延迟，请稍候...${NC}"
+
+    # 使用静默版本获取测试结果，避免进度信息混入
+    local results=$(test_all_domains_silent | head -n 10)
+
     if [[ -z "$results" ]]; then
         echo -e "${RED}域名测试失败，使用默认域名${NC}"
         echo "默认域名: news.ycombinator.com"
         read -p "按回车键继续..."
         return
     fi
-    
+
+    echo ""
     echo -e "${CYAN}可用域名列表:${NC}"
     echo ""
     printf "%-5s %-30s %s\n" "编号" "域名" "延迟(ms)"
     echo "----------------------------------------"
-    
+
     local domains_array=()
     local index=1
-    
-    while read -r latency domain; do
-        printf "%-5d %-30s %d ms\n" "$index" "$domain" "$latency"
-        domains_array+=("$domain")
-        index=$((index + 1))
+
+    # 改进解析逻辑，过滤无效行
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            # 提取延迟和域名
+            local latency=$(echo "$line" | awk '{print $1}')
+            local domain=$(echo "$line" | awk '{print $2}')
+
+            # 验证数据格式：延迟必须是数字，域名不能为空且不能包含空格
+            if [[ "$latency" =~ ^[0-9]+$ ]] && [[ -n "$domain" ]] && [[ ! "$domain" =~ [[:space:]] ]]; then
+                printf "%-5d %-30s %d ms\n" "$index" "$domain" "$latency"
+                domains_array+=("$domain")
+                index=$((index + 1))
+            fi
+        fi
     done <<< "$results"
     
     echo ""

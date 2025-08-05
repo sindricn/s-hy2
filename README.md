@@ -25,11 +25,14 @@ sudo s-hy2
 
 ### 安装问题修复
 
-如果安装后遇到问题（如"安装脚本不存在"），可以运行修复脚本：
+如果安装后遇到问题，可以运行对应的修复脚本：
 
 ```bash
-# 修复已安装的 s-hy2
+# 修复安装问题（如"安装脚本不存在"）
 curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/fix-installation.sh | sudo bash
+
+# 修复域名测试问题（如显示调试信息而非域名）
+curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/fix-domain-test.sh | sudo bash
 ```
 
 ### 其他安装方式
