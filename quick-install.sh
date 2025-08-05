@@ -1,9 +1,16 @@
 #!/bin/bash
 
 # Hysteria2 配置管理脚本一键安装脚本
-# 使用方法: curl -fsSL https://raw.githubusercontent.com/your-repo/s-hy2/main/quick-install.sh | sudo bash
+# 使用方法: curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install.sh | sudo bash
+# 调试模式: curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install.sh | sudo bash -s -- --debug
 
-set -e
+# 检查是否启用调试模式
+if [[ "$1" == "--debug" ]]; then
+    set -x  # 启用调试输出
+    DEBUG_MODE=true
+else
+    DEBUG_MODE=false
+fi
 
 # 颜色定义
 RED='\033[0;31m'
@@ -12,6 +19,25 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
+
+# 日志函数
+log_debug() {
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        echo -e "${CYAN}[DEBUG]${NC} $1"
+    fi
+}
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
 
 # 脚本信息
 SCRIPT_NAME="s-hy2"
@@ -34,8 +60,9 @@ check_root() {
     if [[ $EUID -ne 0 ]]; then
         echo -e "${RED}错误: 此脚本需要 root 权限运行${NC}"
         echo "请使用 sudo 运行此脚本"
-        exit 1
+        return 1
     fi
+    return 0
 }
 
 # 检测系统类型
@@ -44,85 +71,147 @@ detect_system() {
         source /etc/os-release
         OS=$ID
         VER=$VERSION_ID
+        echo -e "${BLUE}检测到系统: $PRETTY_NAME${NC}"
+        return 0
     else
         echo -e "${RED}无法检测系统类型${NC}"
-        exit 1
+        return 1
     fi
-    
-    echo -e "${BLUE}检测到系统: $PRETTY_NAME${NC}"
 }
 
 # 安装依赖
 install_dependencies() {
     echo -e "${BLUE}安装必要依赖...${NC}"
-    
+
     case $OS in
         ubuntu|debian)
-            apt update
-            apt install -y curl wget git openssl net-tools iptables
+            echo "更新软件包列表..."
+            if ! apt update; then
+                echo -e "${YELLOW}警告: 软件包列表更新失败，继续安装...${NC}"
+            fi
+            echo "安装依赖包..."
+            if ! apt install -y curl wget git openssl net-tools iptables; then
+                echo -e "${YELLOW}警告: 部分依赖安装失败，继续执行...${NC}"
+            fi
             ;;
         centos|rhel|fedora)
             if command -v dnf &> /dev/null; then
-                dnf install -y curl wget git openssl net-tools iptables
+                echo "使用 dnf 安装依赖..."
+                if ! dnf install -y curl wget git openssl net-tools iptables; then
+                    echo -e "${YELLOW}警告: 部分依赖安装失败，继续执行...${NC}"
+                fi
             else
-                yum install -y curl wget git openssl net-tools iptables
+                echo "使用 yum 安装依赖..."
+                if ! yum install -y curl wget git openssl net-tools iptables; then
+                    echo -e "${YELLOW}警告: 部分依赖安装失败，继续执行...${NC}"
+                fi
             fi
             ;;
         *)
-            echo -e "${YELLOW}未知系统，尝试通用安装...${NC}"
+            echo -e "${YELLOW}未知系统，跳过依赖安装...${NC}"
             ;;
     esac
+
+    echo -e "${GREEN}依赖安装完成${NC}"
+}
+
+# 下载单个文件
+download_file() {
+    local url="$1"
+    local output="$2"
+    local description="$3"
+
+    echo "  下载 $description..."
+    if ! curl -fsSL "$url" -o "$output"; then
+        echo -e "${RED}    失败: 无法下载 $description${NC}"
+        return 1
+    fi
+    return 0
 }
 
 # 下载脚本文件
 download_scripts() {
     echo -e "${BLUE}下载 Hysteria2 配置管理脚本...${NC}"
-    
+
     # 创建安装目录
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR/scripts"
-    mkdir -p "$INSTALL_DIR/templates"
-    
-    cd "$INSTALL_DIR"
-    
+    if ! mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/scripts" "$INSTALL_DIR/templates"; then
+        echo -e "${RED}错误: 无法创建安装目录${NC}"
+        exit 1
+    fi
+
+    cd "$INSTALL_DIR" || {
+        echo -e "${RED}错误: 无法进入安装目录${NC}"
+        exit 1
+    }
+
+    local failed_downloads=0
+
     # 下载主脚本
-    echo "下载主脚本..."
-    curl -fsSL "$RAW_URL/hy2-manager.sh" -o hy2-manager.sh
-    
+    if ! download_file "$RAW_URL/hy2-manager.sh" "hy2-manager.sh" "主脚本"; then
+        ((failed_downloads++))
+    fi
+
     # 下载功能脚本
     echo "下载功能模块..."
-    curl -fsSL "$RAW_URL/scripts/install.sh" -o scripts/install.sh
-    curl -fsSL "$RAW_URL/scripts/config.sh" -o scripts/config.sh
-    curl -fsSL "$RAW_URL/scripts/service.sh" -o scripts/service.sh
-    curl -fsSL "$RAW_URL/scripts/domain-test.sh" -o scripts/domain-test.sh
-    curl -fsSL "$RAW_URL/scripts/advanced.sh" -o scripts/advanced.sh
-    curl -fsSL "$RAW_URL/scripts/node-info.sh" -o scripts/node-info.sh
-    
+    local scripts=(
+        "install.sh:安装脚本"
+        "config.sh:配置脚本"
+        "service.sh:服务管理脚本"
+        "domain-test.sh:域名测试脚本"
+        "advanced.sh:进阶配置脚本"
+        "node-info.sh:节点信息脚本"
+    )
+
+    for script_info in "${scripts[@]}"; do
+        IFS=':' read -r script_name script_desc <<< "$script_info"
+        if ! download_file "$RAW_URL/scripts/$script_name" "scripts/$script_name" "$script_desc"; then
+            ((failed_downloads++))
+        fi
+    done
+
     # 下载配置模板
     echo "下载配置模板..."
-    curl -fsSL "$RAW_URL/templates/acme-config.yaml" -o templates/acme-config.yaml
-    curl -fsSL "$RAW_URL/templates/self-cert-config.yaml" -o templates/self-cert-config.yaml
-    curl -fsSL "$RAW_URL/templates/advanced-config.yaml" -o templates/advanced-config.yaml
-    curl -fsSL "$RAW_URL/templates/client-config.yaml" -o templates/client-config.yaml
-    
+    local templates=(
+        "acme-config.yaml:ACME配置模板"
+        "self-cert-config.yaml:自签名配置模板"
+        "advanced-config.yaml:高级配置模板"
+        "client-config.yaml:客户端配置模板"
+    )
+
+    for template_info in "${templates[@]}"; do
+        IFS=':' read -r template_name template_desc <<< "$template_info"
+        if ! download_file "$RAW_URL/templates/$template_name" "templates/$template_name" "$template_desc"; then
+            ((failed_downloads++))
+        fi
+    done
+
     # 设置执行权限
-    chmod +x hy2-manager.sh
-    chmod +x scripts/*.sh
-    
+    echo "设置执行权限..."
+    chmod +x hy2-manager.sh 2>/dev/null || echo -e "${YELLOW}警告: 无法设置主脚本执行权限${NC}"
+    chmod +x scripts/*.sh 2>/dev/null || echo -e "${YELLOW}警告: 无法设置脚本执行权限${NC}"
+
+    if [[ $failed_downloads -gt 0 ]]; then
+        echo -e "${YELLOW}警告: $failed_downloads 个文件下载失败，但继续安装...${NC}"
+    fi
+
     echo -e "${GREEN}脚本文件下载完成${NC}"
 }
 
 # 创建符号链接
 create_symlink() {
     echo -e "${BLUE}创建命令行快捷方式...${NC}"
-    
+
     # 创建符号链接到 /usr/local/bin
-    ln -sf "$INSTALL_DIR/hy2-manager.sh" "$BIN_DIR/hy2-manager"
-    ln -sf "$INSTALL_DIR/hy2-manager.sh" "$BIN_DIR/s-hy2"
-    
-    echo -e "${GREEN}已创建命令行快捷方式:${NC}"
-    echo "  hy2-manager"
-    echo "  s-hy2"
+    if ln -sf "$INSTALL_DIR/hy2-manager.sh" "$BIN_DIR/hy2-manager" && \
+       ln -sf "$INSTALL_DIR/hy2-manager.sh" "$BIN_DIR/s-hy2"; then
+        echo -e "${GREEN}已创建命令行快捷方式:${NC}"
+        echo "  hy2-manager"
+        echo "  s-hy2"
+        return 0
+    else
+        echo -e "${RED}创建快捷方式失败${NC}"
+        return 1
+    fi
 }
 
 # 创建桌面快捷方式 (可选)
@@ -193,11 +282,24 @@ show_completion() {
 # 检查网络连接
 check_network() {
     echo -e "${BLUE}检查网络连接...${NC}"
-    if ! curl -s --connect-timeout 10 https://www.google.com > /dev/null; then
-        echo -e "${RED}网络连接失败，请检查网络设置${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}网络连接正常${NC}"
+
+    # 尝试多个网站测试网络连接
+    local test_urls=(
+        "https://www.google.com"
+        "https://github.com"
+        "https://raw.githubusercontent.com"
+        "https://www.baidu.com"
+    )
+
+    for url in "${test_urls[@]}"; do
+        if curl -s --connect-timeout 5 "$url" > /dev/null 2>&1; then
+            echo -e "${GREEN}网络连接正常${NC}"
+            return 0
+        fi
+    done
+
+    echo -e "${YELLOW}警告: 网络连接可能有问题，但继续尝试安装...${NC}"
+    return 0
 }
 
 # 卸载脚本
@@ -226,9 +328,9 @@ main() {
         uninstall
         exit 0
     fi
-    
+
     print_header
-    
+
     echo -e "${YELLOW}即将安装 Hysteria2 配置管理脚本${NC}"
     echo ""
     echo -e "${BLUE}此脚本将会:${NC}"
@@ -244,14 +346,36 @@ main() {
         echo -e "${BLUE}取消安装${NC}"
         exit 0
     fi
-    
-    check_root
-    check_network
-    detect_system
-    install_dependencies
-    download_scripts
-    create_symlink
-    create_desktop_shortcut
+
+    echo ""
+    echo -e "${BLUE}开始安装...${NC}"
+
+    # 逐步执行，增加错误处理
+    if ! check_root; then
+        echo -e "${RED}安装失败: 需要 root 权限${NC}"
+        exit 1
+    fi
+
+    check_network  # 网络检查不强制退出
+
+    if ! detect_system; then
+        echo -e "${RED}安装失败: 无法检测系统类型${NC}"
+        exit 1
+    fi
+
+    install_dependencies  # 依赖安装失败不强制退出
+
+    if ! download_scripts; then
+        echo -e "${RED}安装失败: 脚本下载失败${NC}"
+        exit 1
+    fi
+
+    if ! create_symlink; then
+        echo -e "${YELLOW}警告: 创建快捷方式失败，但安装继续...${NC}"
+    fi
+
+    create_desktop_shortcut  # 桌面快捷方式失败不影响安装
+
     show_completion
 }
 

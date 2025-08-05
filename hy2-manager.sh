@@ -54,12 +54,11 @@ print_menu() {
     echo -e "${GREEN}6.${NC} 测试伪装域名"
     echo -e "${GREEN}7.${NC} 进阶配置"
     echo -e "${GREEN}8.${NC} 节点信息"
-    echo -e "${GREEN}9.${NC} 故障排除"
-    echo -e "${GREEN}10.${NC} 卸载服务"
-    echo -e "${GREEN}11.${NC} 关于脚本"
+    echo -e "${GREEN}9.${NC} 卸载服务"
+    echo -e "${GREEN}10.${NC} 关于脚本"
     echo -e "${RED}0.${NC} 退出"
     echo ""
-    echo -n -e "${BLUE}请输入选项 [0-11]: ${NC}"
+    echo -n -e "${BLUE}请输入选项 [0-10]: ${NC}"
 }
 
 # 检查 Hysteria2 是否已安装
@@ -503,12 +502,9 @@ main() {
                 show_node_info
                 ;;
             9)
-                troubleshoot
-                ;;
-            10)
                 uninstall_hysteria
                 ;;
-            11)
+            10)
                 about_script
                 ;;
             0)
