@@ -321,6 +321,39 @@ uninstall() {
     echo -e "${GREEN}卸载完成${NC}"
 }
 
+# 改进的确认函数 - 支持管道输入
+confirm_installation() {
+    # 检查是否通过管道运行
+    if [[ -t 0 ]]; then
+        # 标准输入可用，可以进行交互
+        echo -n -e "${YELLOW}是否继续安装? [Y/n]: ${NC}"
+        read -r confirm
+        if [[ $confirm =~ ^[Nn]$ ]]; then
+            echo -e "${BLUE}取消安装${NC}"
+            exit 0
+        fi
+    else
+        # 通过管道运行，检查是否有强制参数
+        if [[ "$1" != "--force" && "$1" != "-f" ]]; then
+            echo -e "${YELLOW}检测到通过管道运行脚本${NC}"
+            echo -e "${BLUE}如需跳过确认，请使用: ${NC}curl -fsSL <url> | sudo bash -s -- --force"
+            echo ""
+            echo -e "${YELLOW}将在 10 秒后自动继续安装...${NC}"
+            echo -e "${BLUE}按 Ctrl+C 取消安装${NC}"
+            
+            # 倒计时
+            for i in {10..1}; do
+                echo -n -e "\r${YELLOW}自动继续倒计时: $i 秒 ${NC}"
+                sleep 1
+            done
+            echo ""
+            echo -e "${GREEN}继续安装...${NC}"
+        else
+            echo -e "${BLUE}强制模式，跳过确认${NC}"
+        fi
+    fi
+}
+
 # 主函数
 main() {
     # 检查参数
@@ -340,12 +373,9 @@ main() {
     echo "• 创建快捷命令 's-hy2'"
     echo "• 设置执行权限"
     echo ""
-    echo -n -e "${YELLOW}是否继续安装? [Y/n]: ${NC}"
-    read -r confirm
-    if [[ $confirm =~ ^[Nn]$ ]]; then
-        echo -e "${BLUE}取消安装${NC}"
-        exit 0
-    fi
+
+    # 使用改进的确认函数
+    confirm_installation "$1"
 
     echo ""
     echo -e "${BLUE}开始安装...${NC}"
