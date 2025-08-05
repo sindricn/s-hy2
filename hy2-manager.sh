@@ -35,6 +35,7 @@ TEMPLATES_DIR="$SCRIPT_DIR/templates"
 
 # 配置文件路径
 CONFIG_PATH="/etc/hysteria/config.yaml"
+SERVER_DOMAIN_CONFIG="/etc/hysteria/server-domain.conf"
 SERVICE_NAME="hysteria-server.service"
 
 # 检查是否为 root 用户
@@ -65,13 +66,14 @@ print_menu() {
     echo -e "${GREEN}4.${NC} 管理服务"
     echo -e "${GREEN}5.${NC} 查看日志"
     echo -e "${GREEN}6.${NC} 测试伪装域名"
-    echo -e "${GREEN}7.${NC} 进阶配置"
-    echo -e "${GREEN}8.${NC} 节点信息"
-    echo -e "${GREEN}9.${NC} 卸载服务"
-    echo -e "${GREEN}10.${NC} 关于脚本"
+    echo -e "${GREEN}7.${NC} 服务器域名配置"
+    echo -e "${GREEN}8.${NC} 进阶配置"
+    echo -e "${GREEN}9.${NC} 节点信息"
+    echo -e "${GREEN}10.${NC} 卸载服务"
+    echo -e "${GREEN}11.${NC} 关于脚本"
     echo -e "${RED}0.${NC} 退出"
     echo ""
-    echo -n -e "${BLUE}请输入选项 [0-10]: ${NC}"
+    echo -n -e "${BLUE}请输入选项 [0-11]: ${NC}"
 }
 
 # 检查 Hysteria2 是否已安装
@@ -196,6 +198,199 @@ test_domains() {
         test_masquerade_domains
     else
         echo -e "${RED}错误: 域名测试脚本不存在${NC}"
+    fi
+}
+
+# 服务器域名配置
+server_domain_config() {
+    echo -e "${BLUE}服务器域名配置${NC}"
+    echo ""
+
+    # 显示当前配置
+    if [[ -f "$SERVER_DOMAIN_CONFIG" ]]; then
+        local current_domain=$(cat "$SERVER_DOMAIN_CONFIG")
+        echo -e "${YELLOW}当前配置域名: $current_domain${NC}"
+    else
+        echo -e "${YELLOW}当前未配置服务器域名${NC}"
+    fi
+
+    echo ""
+    echo -e "${GREEN}1.${NC} 设置服务器域名"
+    echo -e "${GREEN}2.${NC} 验证域名解析"
+    echo -e "${GREEN}3.${NC} 删除域名配置"
+    echo -e "${RED}0.${NC} 返回主菜单"
+    echo ""
+    echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
+    read -r choice
+
+    case $choice in
+        1)
+            set_server_domain
+            ;;
+        2)
+            verify_domain_resolution
+            ;;
+        3)
+            remove_server_domain
+            ;;
+        0)
+            return
+            ;;
+        *)
+            echo -e "${RED}无效选项${NC}"
+            sleep 1
+            server_domain_config
+            ;;
+    esac
+}
+
+# 设置服务器域名
+set_server_domain() {
+    echo ""
+    echo -e "${BLUE}设置服务器域名${NC}"
+    echo ""
+    echo "请输入解析到此服务器的域名 (例如: example.com):"
+    echo -n -e "${YELLOW}域名: ${NC}"
+    read -r domain
+
+    if [[ -z "$domain" ]]; then
+        echo -e "${RED}域名不能为空${NC}"
+        read -p "按回车键继续..."
+        return
+    fi
+
+    # 简单的域名格式验证
+    if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+        echo -e "${RED}域名格式不正确${NC}"
+        read -p "按回车键继续..."
+        return
+    fi
+
+    # 保存域名配置
+    echo "$domain" > "$SERVER_DOMAIN_CONFIG"
+    echo -e "${GREEN}服务器域名已设置: $domain${NC}"
+
+    # 询问是否立即验证
+    echo ""
+    echo -n -e "${YELLOW}是否立即验证域名解析? [Y/n]: ${NC}"
+    read -r verify
+    if [[ ! $verify =~ ^[Nn]$ ]]; then
+        verify_domain_resolution
+    fi
+
+    read -p "按回车键继续..."
+}
+
+# 验证域名解析
+verify_domain_resolution() {
+    echo ""
+    echo -e "${BLUE}验证域名解析${NC}"
+
+    if [[ ! -f "$SERVER_DOMAIN_CONFIG" ]]; then
+        echo -e "${RED}未配置服务器域名${NC}"
+        read -p "按回车键继续..."
+        return
+    fi
+
+    local domain=$(cat "$SERVER_DOMAIN_CONFIG")
+    local server_ip=$(get_server_ip)
+
+    echo "正在验证域名: $domain"
+    echo "服务器IP: $server_ip"
+    echo ""
+
+    # 使用多种方法解析域名
+    local resolved_ip=""
+
+    # 方法1: 使用 dig
+    if command -v dig &> /dev/null; then
+        resolved_ip=$(dig +short "$domain" A | head -1)
+    fi
+
+    # 方法2: 使用 nslookup (备选)
+    if [[ -z "$resolved_ip" ]] && command -v nslookup &> /dev/null; then
+        resolved_ip=$(nslookup "$domain" | grep -A1 "Name:" | tail -1 | awk '{print $2}')
+    fi
+
+    # 方法3: 使用 host (备选)
+    if [[ -z "$resolved_ip" ]] && command -v host &> /dev/null; then
+        resolved_ip=$(host "$domain" | grep "has address" | awk '{print $4}' | head -1)
+    fi
+
+    if [[ -n "$resolved_ip" ]]; then
+        echo "域名解析结果: $resolved_ip"
+
+        if [[ "$resolved_ip" == "$server_ip" ]]; then
+            echo -e "${GREEN}✅ 域名解析正确，指向当前服务器${NC}"
+        else
+            echo -e "${RED}❌ 域名解析错误${NC}"
+            echo "域名指向: $resolved_ip"
+            echo "服务器IP: $server_ip"
+            echo ""
+            echo "请检查域名DNS设置"
+        fi
+    else
+        echo -e "${YELLOW}⚠️ 无法解析域名，可能原因:${NC}"
+        echo "1. 域名DNS设置未生效"
+        echo "2. 网络连接问题"
+        echo "3. DNS服务器问题"
+    fi
+
+    read -p "按回车键继续..."
+}
+
+# 删除服务器域名配置
+remove_server_domain() {
+    echo ""
+    echo -e "${YELLOW}删除服务器域名配置${NC}"
+
+    if [[ ! -f "$SERVER_DOMAIN_CONFIG" ]]; then
+        echo -e "${YELLOW}未配置服务器域名${NC}"
+        read -p "按回车键继续..."
+        return
+    fi
+
+    local domain=$(cat "$SERVER_DOMAIN_CONFIG")
+    echo "当前配置域名: $domain"
+    echo ""
+    echo -n -e "${RED}确定要删除域名配置吗? [y/N]: ${NC}"
+    read -r confirm
+
+    if [[ $confirm =~ ^[Yy]$ ]]; then
+        rm -f "$SERVER_DOMAIN_CONFIG"
+        echo -e "${GREEN}域名配置已删除${NC}"
+    else
+        echo -e "${BLUE}取消删除${NC}"
+    fi
+
+    read -p "按回车键继续..."
+}
+
+# 获取服务器IP
+get_server_ip() {
+    local ip=""
+
+    # 尝试多种方法获取公网IP
+    ip=$(curl -s --connect-timeout 5 ipv4.icanhazip.com 2>/dev/null) || \
+    ip=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null) || \
+    ip=$(curl -s --connect-timeout 5 ip.sb 2>/dev/null) || \
+    ip=$(curl -s --connect-timeout 5 checkip.amazonaws.com 2>/dev/null)
+
+    if [[ -n "$ip" && "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo "$ip"
+    else
+        # 如果无法获取公网IP，尝试获取本地IP
+        ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
+        echo "${ip:-127.0.0.1}"
+    fi
+}
+
+# 获取配置的服务器域名
+get_server_domain() {
+    if [[ -f "$SERVER_DOMAIN_CONFIG" ]]; then
+        cat "$SERVER_DOMAIN_CONFIG"
+    else
+        echo ""
     fi
 }
 
@@ -528,15 +723,18 @@ main() {
                 test_domains
                 ;;
             7)
-                advanced_config
+                server_domain_config
                 ;;
             8)
-                show_node_info
+                advanced_config
                 ;;
             9)
-                uninstall_hysteria
+                show_node_info
                 ;;
             10)
+                uninstall_hysteria
+                ;;
+            11)
                 about_script
                 ;;
             0)

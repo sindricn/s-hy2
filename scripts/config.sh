@@ -28,21 +28,49 @@ validate_email() {
     fi
 }
 
+# 获取服务器域名配置
+get_server_domain() {
+    if [[ -f "/etc/hysteria/server-domain.conf" ]]; then
+        cat "/etc/hysteria/server-domain.conf"
+    else
+        echo ""
+    fi
+}
+
 # ACME 配置模式
 configure_acme_mode() {
     echo -e "${BLUE}ACME 自动证书配置${NC}"
     echo ""
-    
-    # 输入域名
-    while true; do
-        echo -n -e "${BLUE}请输入域名 (例: your.domain.com): ${NC}"
-        read -r domain
-        if validate_domain "$domain"; then
-            break
-        else
-            echo -e "${RED}域名格式无效，请重新输入${NC}"
+
+    # 检查是否已配置服务器域名
+    local configured_domain=$(get_server_domain)
+    local domain=""
+
+    if [[ -n "$configured_domain" ]]; then
+        echo -e "${GREEN}检测到已配置的服务器域名: $configured_domain${NC}"
+        echo ""
+        echo -n -e "${YELLOW}是否使用已配置的域名? [Y/n]: ${NC}"
+        read -r use_configured
+
+        if [[ ! $use_configured =~ ^[Nn]$ ]]; then
+            domain="$configured_domain"
+            echo -e "${GREEN}使用已配置域名: $domain${NC}"
         fi
-    done
+    fi
+
+    # 如果没有使用已配置域名，则手动输入
+    if [[ -z "$domain" ]]; then
+        echo -e "${BLUE}手动输入域名${NC}"
+        while true; do
+            echo -n -e "${BLUE}请输入域名 (例: your.domain.com): ${NC}"
+            read -r domain
+            if validate_domain "$domain"; then
+                break
+            else
+                echo -e "${RED}域名格式无效，请重新输入${NC}"
+            fi
+        done
+    fi
     
     # 输入邮箱
     while true; do
@@ -256,6 +284,72 @@ get_network_interface() {
     echo "$interface"
 }
 
+# 检查端口跳跃状态
+check_port_hopping_status() {
+    if iptables -t nat -L PREROUTING 2>/dev/null | grep -q "REDIRECT.*--to-ports 443"; then
+        return 0  # 已开启
+    else
+        return 1  # 未开启
+    fi
+}
+
+# 询问端口跳跃设置
+ask_port_hopping_config() {
+    echo -e "${BLUE}检查端口跳跃状态...${NC}"
+
+    if check_port_hopping_status; then
+        echo -e "${GREEN}端口跳跃已开启${NC}"
+        echo ""
+        echo -n -e "${YELLOW}是否保持端口跳跃开启? [Y/n]: ${NC}"
+        read -r keep_hopping
+
+        if [[ $keep_hopping =~ ^[Nn]$ ]]; then
+            echo -e "${BLUE}关闭端口跳跃...${NC}"
+            # 清除端口跳跃规则
+            iptables -t nat -D PREROUTING -i $(get_network_interface) -p udp --dport 20000:50000 -j REDIRECT --to-ports 443 2>/dev/null || true
+            echo -e "${GREEN}端口跳跃已关闭${NC}"
+        else
+            echo -e "${GREEN}保持端口跳跃开启${NC}"
+        fi
+    else
+        echo -e "${YELLOW}端口跳跃未开启${NC}"
+        echo ""
+        echo -n -e "${YELLOW}是否开启端口跳跃? [y/N]: ${NC}"
+        read -r enable_hopping
+
+        if [[ $enable_hopping =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}开启端口跳跃...${NC}"
+            # 添加端口跳跃规则
+            iptables -t nat -A PREROUTING -i $(get_network_interface) -p udp --dport 20000:50000 -j REDIRECT --to-ports 443
+            echo -e "${GREEN}端口跳跃已开启${NC}"
+        else
+            echo -e "${BLUE}保持端口跳跃关闭${NC}"
+        fi
+    fi
+    echo ""
+}
+
+# 询问是否重启服务
+ask_restart_service() {
+    echo ""
+    echo -n -e "${YELLOW}配置已完成，是否立即重启 Hysteria2 服务? [Y/n]: ${NC}"
+    read -r restart_service
+
+    if [[ ! $restart_service =~ ^[Nn]$ ]]; then
+        echo -e "${BLUE}正在重启 Hysteria2 服务...${NC}"
+        systemctl restart hysteria-server
+
+        if systemctl is-active --quiet hysteria-server; then
+            echo -e "${GREEN}✅ 服务重启成功${NC}"
+        else
+            echo -e "${RED}❌ 服务重启失败${NC}"
+            echo "请检查配置文件或查看日志"
+        fi
+    else
+        echo -e "${YELLOW}请稍后手动重启服务: systemctl restart hysteria-server${NC}"
+    fi
+}
+
 # 一键快速配置
 quick_setup_hysteria() {
     echo -e "${CYAN}=== Hysteria2 一键快速配置 ===${NC}"
@@ -427,6 +521,12 @@ EOF
         echo -e "${RED}服务启动失败${NC}"
     fi
 
+    # 检查端口跳跃状态并询问
+    ask_port_hopping_config
+
+    # 询问是否重启服务
+    ask_restart_service
+
     echo ""
     read -p "按回车键继续..."
 }
@@ -440,6 +540,18 @@ generate_node_info() {
     local start_port="$5"
     local end_port="$6"
 
+    # 检查是否有配置的服务器域名
+    local configured_domain=$(get_server_domain)
+    local server_address=""
+
+    if [[ -n "$configured_domain" ]]; then
+        server_address="$configured_domain:443"
+        echo -e "${GREEN}使用已配置的服务器域名: $configured_domain${NC}"
+    else
+        server_address="$server_ip:443"
+        echo -e "${YELLOW}使用服务器IP地址: $server_ip${NC}"
+    fi
+
     # 保存节点信息到文件
     local node_file="/etc/hysteria/node-info.txt"
 
@@ -447,7 +559,7 @@ generate_node_info() {
 # Hysteria2 节点信息
 # 生成时间: $(date)
 
-服务器地址: $server_ip:443
+服务器地址: $server_address
 认证密码: $auth_password
 混淆密码: $obfs_password
 SNI域名: $sni_domain
@@ -455,7 +567,7 @@ SNI域名: $sni_domain
 证书验证: 忽略 (自签名证书)
 
 # 客户端配置示例
-server: $server_ip:443
+server: $server_address
 auth: $auth_password
 tls:
   sni: $sni_domain
@@ -536,11 +648,17 @@ generate_hysteria_config() {
     
     echo ""
     echo -e "${GREEN}配置文件已保存到: $CONFIG_PATH${NC}"
+
+    # 检查端口跳跃状态并询问
+    ask_port_hopping_config
+
+    # 询问是否重启服务
+    ask_restart_service
+
     echo ""
-    echo -e "${YELLOW}下一步建议:${NC}"
-    echo "1. 启动服务: systemctl enable --now hysteria-server.service"
-    echo "2. 查看状态: systemctl status hysteria-server.service"
-    echo "3. 查看日志: journalctl -u hysteria-server.service"
+    echo -e "${YELLOW}其他管理命令:${NC}"
+    echo "1. 查看状态: systemctl status hysteria-server.service"
+    echo "2. 查看日志: journalctl -u hysteria-server.service"
     echo ""
     read -p "按回车键继续..."
 }

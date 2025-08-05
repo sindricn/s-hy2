@@ -45,22 +45,42 @@ parse_config_info() {
     echo "$port|$auth_password|$obfs_password|$sni_domain|$cert_type|$insecure"
 }
 
+# 获取服务器域名配置
+get_server_domain() {
+    if [[ -f "/etc/hysteria/server-domain.conf" ]]; then
+        cat "/etc/hysteria/server-domain.conf"
+    else
+        echo ""
+    fi
+}
+
 # 获取服务器IP
 get_current_server_ip() {
     local ip=""
-    
+
     # 尝试多种方法获取公网IP
     ip=$(curl -s --connect-timeout 5 ipv4.icanhazip.com 2>/dev/null) || \
     ip=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null) || \
     ip=$(curl -s --connect-timeout 5 ip.sb 2>/dev/null) || \
     ip=$(curl -s --connect-timeout 5 checkip.amazonaws.com 2>/dev/null)
-    
+
     if [[ -n "$ip" && "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
         echo "$ip"
     else
         # 如果无法获取公网IP，尝试获取本地IP
         ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
         echo "${ip:-127.0.0.1}"
+    fi
+}
+
+# 获取服务器地址（优先使用域名）
+get_server_address() {
+    local configured_domain=$(get_server_domain)
+
+    if [[ -n "$configured_domain" ]]; then
+        echo "$configured_domain"
+    else
+        get_current_server_ip
     fi
 }
 
@@ -116,18 +136,47 @@ generate_subscription_link() {
     echo "$node_link" | base64 -w 0
 }
 
+# 生成不同客户端的订阅链接
+generate_client_subscriptions() {
+    local node_link="$1"
+
+    echo -e "${CYAN}=== 客户端订阅链接 ===${NC}"
+    echo ""
+
+    # Hysteria2 通用订阅
+    local hysteria2_sub=$(echo "$node_link" | base64 -w 0)
+    echo -e "${YELLOW}Hysteria2 通用订阅:${NC}"
+    echo "$hysteria2_sub"
+    echo ""
+
+    # V2Ray/Xray 兼容订阅 (如果支持)
+    echo -e "${YELLOW}V2Ray/Xray 兼容订阅:${NC}"
+    echo "暂不支持，请使用 Hysteria2 专用客户端"
+    echo ""
+
+    # Clash 兼容订阅
+    echo -e "${YELLOW}Clash 兼容订阅:${NC}"
+    echo "暂不支持，请使用 Hysteria2 专用客户端"
+    echo ""
+
+    echo -e "${GREEN}推荐客户端:${NC}"
+    echo "• Windows/macOS/Linux: Hysteria2 官方客户端"
+    echo "• Android: NekoBox, v2rayNG (支持 Hysteria2)"
+    echo "• iOS: Shadowrocket, QuantumultX (支持 Hysteria2)"
+}
+
 # 生成客户端配置
 generate_client_config() {
-    local server_ip="$1"
+    local server_address="$1"
     local port="$2"
     local auth_password="$3"
     local obfs_password="$4"
     local sni_domain="$5"
     local insecure="$6"
-    
+
     cat << EOF
 # Hysteria2 客户端配置
-server: $server_ip:$port
+server: $server_address:$port
 auth: $auth_password
 
 tls:
@@ -181,24 +230,31 @@ display_node_info() {
     fi
     
     # 获取服务器信息
+    local server_address=$(get_server_address)
     local server_ip=$(get_current_server_ip)
+    local configured_domain=$(get_server_domain)
     local config_info=$(parse_config_info)
-    
+
     if [[ -z "$config_info" ]]; then
         echo -e "${RED}错误: 无法解析配置文件${NC}"
         read -p "按回车键继续..."
         return
     fi
-    
+
     # 解析配置信息
     IFS='|' read -r port auth_password obfs_password sni_domain cert_type insecure <<< "$config_info"
-    
+
     # 获取端口跳跃信息
     local port_hopping=$(get_port_hopping_info)
-    
+
     # 显示基本信息
     echo -e "${CYAN}=== 服务器信息 ===${NC}"
-    echo -e "${YELLOW}服务器地址:${NC} $server_ip:$port"
+    if [[ -n "$configured_domain" ]]; then
+        echo -e "${YELLOW}服务器域名:${NC} $configured_domain:$port"
+        echo -e "${YELLOW}服务器IP:${NC} $server_ip:$port"
+    else
+        echo -e "${YELLOW}服务器地址:${NC} $server_ip:$port"
+    fi
     echo -e "${YELLOW}认证密码:${NC} $auth_password"
     if [[ -n "$obfs_password" ]]; then
         echo -e "${YELLOW}混淆密码:${NC} $obfs_password"
@@ -209,22 +265,20 @@ display_node_info() {
     echo -e "${YELLOW}证书类型:${NC} $cert_type"
     echo -e "${YELLOW}端口跳跃:${NC} $port_hopping"
     echo ""
-    
-    # 生成链接
-    local node_link=$(generate_node_link "$server_ip" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-    local subscription_link=$(generate_subscription_link "$node_link")
+
+    # 生成链接（使用服务器地址）
+    local node_link=$(generate_node_link "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
     
     while true; do
         echo -e "${CYAN}=== 节点信息选项 ===${NC}"
         echo -e "${GREEN}1.${NC} 显示节点链接"
-        echo -e "${GREEN}2.${NC} 显示订阅链接"
+        echo -e "${GREEN}2.${NC} 显示客户端订阅链接"
         echo -e "${GREEN}3.${NC} 显示客户端配置"
         echo -e "${GREEN}4.${NC} 保存到文件"
-        echo -e "${GREEN}5.${NC} 生成二维码 (需要 qrencode)"
-        echo -e "${GREEN}6.${NC} 刷新信息"
+        echo -e "${GREEN}5.${NC} 刷新信息"
         echo -e "${RED}0.${NC} 返回主菜单"
         echo ""
-        echo -n -e "${BLUE}请选择操作 [0-6]: ${NC}"
+        echo -n -e "${BLUE}请选择操作 [0-5]: ${NC}"
         read -r choice
         
         case $choice in
@@ -237,8 +291,7 @@ display_node_info() {
                 ;;
             2)
                 echo ""
-                echo -e "${CYAN}订阅链接 (Base64):${NC}"
-                echo "$subscription_link"
+                generate_client_subscriptions "$node_link"
                 echo ""
                 read -p "按回车键继续..."
                 ;;
@@ -246,24 +299,22 @@ display_node_info() {
                 echo ""
                 echo -e "${CYAN}客户端配置:${NC}"
                 echo ""
-                generate_client_config "$server_ip" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
                 echo ""
                 read -p "按回车键继续..."
                 ;;
             4)
-                save_node_info_to_file "$server_ip" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping" "$node_link" "$subscription_link"
+                save_node_info_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping" "$node_link"
                 ;;
             5)
-                generate_qr_code "$node_link"
-                ;;
-            6)
                 # 刷新信息
+                server_address=$(get_server_address)
                 server_ip=$(get_current_server_ip)
+                configured_domain=$(get_server_domain)
                 config_info=$(parse_config_info)
                 IFS='|' read -r port auth_password obfs_password sni_domain cert_type insecure <<< "$config_info"
                 port_hopping=$(get_port_hopping_info)
-                node_link=$(generate_node_link "$server_ip" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-                subscription_link=$(generate_subscription_link "$node_link")
+                node_link=$(generate_node_link "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
                 echo -e "${GREEN}信息已刷新${NC}"
                 sleep 1
                 ;;
@@ -280,7 +331,7 @@ display_node_info() {
 
 # 保存节点信息到文件
 save_node_info_to_file() {
-    local server_ip="$1"
+    local server_address="$1"
     local port="$2"
     local auth_password="$3"
     local obfs_password="$4"
@@ -288,16 +339,30 @@ save_node_info_to_file() {
     local insecure="$6"
     local port_hopping="$7"
     local node_link="$8"
-    local subscription_link="$9"
-    
+
     local output_file="/etc/hysteria/node-info.txt"
-    
+    local configured_domain=$(get_server_domain)
+    local server_ip=$(get_current_server_ip)
+
     cat > "$output_file" << EOF
 # Hysteria2 节点信息
 # 生成时间: $(date)
 
 === 服务器信息 ===
-服务器地址: $server_ip:$port
+EOF
+
+    if [[ -n "$configured_domain" ]]; then
+        cat >> "$output_file" << EOF
+服务器域名: $configured_domain:$port
+服务器IP: $server_ip:$port
+EOF
+    else
+        cat >> "$output_file" << EOF
+服务器地址: $server_address:$port
+EOF
+    fi
+
+    cat >> "$output_file" << EOF
 认证密码: $auth_password
 混淆密码: ${obfs_password:-未启用}
 SNI域名: ${sni_domain:-未设置}
@@ -307,37 +372,22 @@ SNI域名: ${sni_domain:-未设置}
 === 节点链接 ===
 $node_link
 
-=== 订阅链接 (Base64) ===
-$subscription_link
+=== Hysteria2 订阅链接 ===
+$(echo "$node_link" | base64 -w 0)
 
 === 客户端配置 ===
-$(generate_client_config "$server_ip" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+$(generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+
+=== 推荐客户端 ===
+• Windows/macOS/Linux: Hysteria2 官方客户端
+• Android: NekoBox, v2rayNG (支持 Hysteria2)
+• iOS: Shadowrocket, QuantumultX (支持 Hysteria2)
 EOF
-    
+
     echo ""
     echo -e "${GREEN}节点信息已保存到: $output_file${NC}"
     echo ""
     read -p "按回车键继续..."
 }
 
-# 生成二维码
-generate_qr_code() {
-    local content="$1"
-    
-    if command -v qrencode &> /dev/null; then
-        echo ""
-        echo -e "${CYAN}节点链接二维码:${NC}"
-        echo ""
-        qrencode -t ANSIUTF8 "$content"
-        echo ""
-    else
-        echo ""
-        echo -e "${YELLOW}qrencode 未安装，无法生成二维码${NC}"
-        echo "安装命令:"
-        echo "  Ubuntu/Debian: apt install qrencode"
-        echo "  CentOS/RHEL: yum install qrencode"
-        echo ""
-    fi
-    
-    read -p "按回车键继续..."
-}
+
