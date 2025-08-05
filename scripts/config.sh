@@ -284,12 +284,178 @@ get_network_interface() {
     echo "$interface"
 }
 
-# 检查端口跳跃状态
+# 改进的端口跳跃状态检查
 check_port_hopping_status() {
-    if iptables -t nat -L PREROUTING 2>/dev/null | grep -q "REDIRECT.*--to-ports 443"; then
+    local interface=$(get_network_interface)
+    local target_port="443"
+    
+    # 多种检测方式
+    local found=false
+    
+    # 方式1: 检查 REDIRECT 规则到 443 端口
+    if iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep -q "REDIRECT.*dpt:.*--to-ports $target_port"; then
+        found=true
+    fi
+    
+    # 方式2: 检查端口范围规则
+    if iptables -t nat -L PREROUTING -n 2>/dev/null | grep -E "REDIRECT.*dpts:[0-9]+:[0-9]+.*--to-ports $target_port" >/dev/null; then
+        found=true
+    fi
+    
+    # 方式3: 检查保存的配置文件
+    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+        source /etc/hysteria/port-hopping.conf 2>/dev/null
+        if [[ -n "$IPTABLES_RULE" ]]; then
+            # 验证规则是否实际存在
+            local rule_parts
+            IFS=' ' read -ra rule_parts <<< "$IPTABLES_RULE"
+            local check_rule=""
+            for part in "${rule_parts[@]}"; do
+                if [[ "$part" != "iptables" && "$part" != "-t" && "$part" != "nat" && "$part" != "-A" ]]; then
+                    check_rule+="$part "
+                fi
+            done
+            if iptables -t nat -C PREROUTING $check_rule 2>/dev/null; then
+                found=true
+            fi
+        fi
+    fi
+    
+    # 方式4: 通用检查 - 查找所有 REDIRECT 到 443 的规则
+    if iptables -t nat -S PREROUTING 2>/dev/null | grep -E "REDIRECT.*--to-ports $target_port" >/dev/null; then
+        found=true
+    fi
+    
+    if $found; then
         return 0  # 已开启
     else
         return 1  # 未开启
+    fi
+}
+
+# 获取当前端口跳跃配置信息
+get_port_hopping_info() {
+    local interface=$(get_network_interface)
+    local info=""
+    
+    # 尝试从配置文件获取信息
+    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+        source /etc/hysteria/port-hopping.conf 2>/dev/null
+        if [[ -n "$START_PORT" && -n "$END_PORT" && -n "$TARGET_PORT" ]]; then
+            info="端口范围: $START_PORT-$END_PORT -> $TARGET_PORT"
+        fi
+    fi
+    
+    # 如果配置文件没有信息，尝试从 iptables 规则解析
+    if [[ -z "$info" ]]; then
+        local rule_info=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports 443" | head -1)
+        if [[ -n "$rule_info" ]]; then
+            # 尝试提取端口范围信息
+            if [[ "$rule_info" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                local start_port="${BASH_REMATCH[1]}"
+                local end_port="${BASH_REMATCH[2]}"
+                info="端口范围: $start_port-$end_port -> 443"
+            elif [[ "$rule_info" =~ dpt:([0-9]+) ]]; then
+                local port="${BASH_REMATCH[1]}"
+                info="单端口: $port -> 443"
+            else
+                info="检测到端口跳跃规则"
+            fi
+        fi
+    fi
+    
+    echo "$info"
+}
+
+# 清除端口跳跃规则
+clear_port_hopping_rules() {
+    local cleared=false
+    local interface=$(get_network_interface)
+    
+    echo -e "${BLUE}正在清除端口跳跃规则...${NC}"
+    
+    # 方式1: 使用保存的配置文件中的规则
+    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+        source /etc/hysteria/port-hopping.conf 2>/dev/null
+        if [[ -n "$IPTABLES_RULE" ]]; then
+            # 将 -A 替换为 -D 来删除规则
+            local delete_rule="${IPTABLES_RULE/-A/-D}"
+            if eval "$delete_rule" 2>/dev/null; then
+                echo "已清除配置文件中记录的规则"
+                cleared=true
+            fi
+        fi
+    fi
+    
+    # 方式2: 清除所有到443端口的REDIRECT规则
+    local rules_to_delete=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^-A\ PREROUTING.*REDIRECT.*--to-ports\ 443 ]]; then
+            rules_to_delete+=("${line/-A/-D}")
+        fi
+    done < <(iptables -t nat -S PREROUTING 2>/dev/null)
+    
+    for rule in "${rules_to_delete[@]}"; do
+        if iptables -t nat $rule 2>/dev/null; then
+            echo "已清除规则: $rule"
+            cleared=true
+        fi
+    done
+    
+    # 方式3: 通用清理方式（基于行号）
+    local line_numbers=($(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports 443" | awk '{print $1}' | sort -rn))
+    for line_num in "${line_numbers[@]}"; do
+        if iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
+            echo "已清除第 $line_num 行规则"
+            cleared=true
+        fi
+    done
+    
+    # 删除配置文件
+    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+        rm -f "/etc/hysteria/port-hopping.conf"
+        echo "已删除端口跳跃配置文件"
+    fi
+    
+    if $cleared; then
+        echo -e "${GREEN}端口跳跃规则清除成功${NC}"
+    else
+        echo -e "${YELLOW}没有找到需要清除的端口跳跃规则${NC}"
+    fi
+}
+
+# 添加端口跳跃规则
+add_port_hopping_rules() {
+    local interface=$(get_network_interface)
+    local start_port=${1:-20000}
+    local end_port=${2:-50000}
+    local target_port=${3:-443}
+    
+    echo -e "${BLUE}正在添加端口跳跃规则...${NC}"
+    
+    # 生成 iptables 规则
+    local iptables_rule="iptables -t nat -A PREROUTING -i $interface -p udp --dport $start_port:$end_port -j REDIRECT --to-ports $target_port"
+    
+    if eval "$iptables_rule" 2>/dev/null; then
+        echo -e "${GREEN}端口跳跃规则添加成功${NC}"
+        echo "规则: $start_port-$end_port -> $target_port (接口: $interface)"
+        
+        # 保存配置到文件
+        cat > "/etc/hysteria/port-hopping.conf" << EOF
+# 端口跳跃配置
+# 生成时间: $(date)
+INTERFACE=$interface
+START_PORT=$start_port
+END_PORT=$end_port
+TARGET_PORT=$target_port
+IPTABLES_RULE="$iptables_rule"
+EOF
+        echo "配置已保存到: /etc/hysteria/port-hopping.conf"
+        return 0
+    else
+        echo -e "${RED}端口跳跃规则添加失败${NC}"
+        echo "请检查 iptables 权限或网络接口设置"
+        return 1
     fi
 }
 
@@ -298,30 +464,41 @@ ask_port_hopping_config() {
     echo -e "${BLUE}检查端口跳跃状态...${NC}"
 
     if check_port_hopping_status; then
-        echo -e "${GREEN}端口跳跃已开启${NC}"
+        local hopping_info=$(get_port_hopping_info)
+        echo -e "${GREEN}✅ 端口跳跃已开启${NC}"
+        if [[ -n "$hopping_info" ]]; then
+            echo "   $hopping_info"
+        fi
         echo ""
         echo -n -e "${YELLOW}是否保持端口跳跃开启? [Y/n]: ${NC}"
         read -r keep_hopping
 
         if [[ $keep_hopping =~ ^[Nn]$ ]]; then
-            echo -e "${BLUE}关闭端口跳跃...${NC}"
-            # 清除端口跳跃规则
-            iptables -t nat -D PREROUTING -i $(get_network_interface) -p udp --dport 20000:50000 -j REDIRECT --to-ports 443 2>/dev/null || true
-            echo -e "${GREEN}端口跳跃已关闭${NC}"
+            clear_port_hopping_rules
         else
             echo -e "${GREEN}保持端口跳跃开启${NC}"
         fi
     else
-        echo -e "${YELLOW}端口跳跃未开启${NC}"
+        echo -e "${YELLOW}❌ 端口跳跃未开启${NC}"
         echo ""
         echo -n -e "${YELLOW}是否开启端口跳跃? [y/N]: ${NC}"
         read -r enable_hopping
 
         if [[ $enable_hopping =~ ^[Yy]$ ]]; then
-            echo -e "${BLUE}开启端口跳跃...${NC}"
-            # 添加端口跳跃规则
-            iptables -t nat -A PREROUTING -i $(get_network_interface) -p udp --dport 20000:50000 -j REDIRECT --to-ports 443
-            echo -e "${GREEN}端口跳跃已开启${NC}"
+            # 询问端口范围
+            echo ""
+            echo -e "${BLUE}配置端口跳跃范围:${NC}"
+            echo -n -e "${BLUE}起始端口 (默认 20000): ${NC}"
+            read -r start_port
+            start_port=${start_port:-20000}
+            
+            echo -n -e "${BLUE}结束端口 (默认 50000): ${NC}"
+            read -r end_port
+            end_port=${end_port:-50000}
+            
+            if add_port_hopping_rules "$start_port" "$end_port" "443"; then
+                echo -e "${GREEN}端口跳跃配置完成${NC}"
+            fi
         else
             echo -e "${BLUE}保持端口跳跃关闭${NC}"
         fi
@@ -339,11 +516,12 @@ ask_restart_service() {
         echo -e "${BLUE}正在重启 Hysteria2 服务...${NC}"
         systemctl restart hysteria-server
 
+        sleep 2
         if systemctl is-active --quiet hysteria-server; then
             echo -e "${GREEN}✅ 服务重启成功${NC}"
         else
             echo -e "${RED}❌ 服务重启失败${NC}"
-            echo "请检查配置文件或查看日志"
+            echo "请检查配置文件或查看日志: journalctl -u hysteria-server.service"
         fi
     else
         echo -e "${YELLOW}请稍后手动重启服务: systemctl restart hysteria-server${NC}"
@@ -468,22 +646,8 @@ EOF
     local end_port=50000
     local target_port=443
 
-    # 生成 iptables 规则
-    local iptables_rule="iptables -t nat -A PREROUTING -i $network_interface -p udp --dport $start_port:$end_port -j REDIRECT --to-ports $target_port"
-
-    if eval "$iptables_rule" 2>/dev/null; then
+    if add_port_hopping_rules "$start_port" "$end_port" "$target_port"; then
         echo "端口跳跃配置成功 ($start_port-$end_port -> $target_port)"
-
-        # 保存端口跳跃配置
-        cat > "/etc/hysteria/port-hopping.conf" << EOF
-# 端口跳跃配置 - 一键快速配置
-# 生成时间: $(date)
-INTERFACE=$network_interface
-START_PORT=$start_port
-END_PORT=$end_port
-TARGET_PORT=$target_port
-IPTABLES_RULE="$iptables_rule"
-EOF
     else
         echo "端口跳跃配置失败，跳过此步骤"
     fi
@@ -520,12 +684,6 @@ EOF
     else
         echo -e "${RED}服务启动失败${NC}"
     fi
-
-    # 检查端口跳跃状态并询问
-    ask_port_hopping_config
-
-    # 询问是否重启服务
-    ask_restart_service
 
     echo ""
     read -p "按回车键继续..."
