@@ -123,14 +123,13 @@ print_menu() {
     echo -e "${GREEN} 5.${NC} 查看日志"
     echo -e "${GREEN} 6.${NC} 测试伪装域名"
     echo -e "${GREEN} 7.${NC} 服务器域名配置"
-    echo -e "${GREEN} 8.${NC} 进阶配置"
+    echo -e "${GREEN} 8.${NC} 配置管理"
     echo -e "${GREEN} 9.${NC} 节点信息"
-    echo -e "${GREEN}10.${NC} 故障排除"
-    echo -e "${GREEN}11.${NC} 卸载服务"
-    echo -e "${GREEN}12.${NC} 关于脚本"
+    echo -e "${GREEN}10.${NC} 卸载服务"
+    echo -e "${GREEN}11.${NC} 关于脚本"
     echo -e "${RED} 0.${NC} 退出"
     echo ""
-    echo -n -e "${BLUE}请输入选项 [0-12]: ${NC}"
+    echo -n -e "${BLUE}请输入选项 [0-11]: ${NC}"
 }
 
 # 检查 Hysteria2 是否已安装
@@ -563,19 +562,46 @@ get_server_domain() {
     fi
 }
 
-# 进阶配置
-advanced_config() {
-    log_info "准备进入进阶配置..."
-    
-    if ! check_hysteria_installed; then
-        log_error "Hysteria2 未安装，请先安装"
-        wait_for_user
-        return
-    fi
-    
-    if safe_source_script "$SCRIPTS_DIR/advanced.sh" "进阶配置脚本"; then
-        advanced_configuration
-    fi
+# 配置管理
+config_management() {
+    while true; do
+        clear
+        echo -e "${CYAN}=== 配置管理 ===${NC}"
+        echo ""
+        
+        if [[ ! -f "$CONFIG_PATH" ]]; then
+            echo -e "${YELLOW}未找到配置文件${NC}"
+            echo ""
+            echo -e "${GREEN}1.${NC} 返回主菜单"
+            echo -n -e "${BLUE}请选择: ${NC}"
+            read -r choice
+            break
+        fi
+        
+        echo -e "${YELLOW}配置管理选项:${NC}"
+        echo -e "${GREEN}1.${NC} 查看当前配置"
+        echo -e "${GREEN}2.${NC} 修改认证密码"
+        echo -e "${GREEN}3.${NC} 修改端口设置"
+        echo -e "${GREEN}4.${NC} 修改混淆设置"
+        echo -e "${GREEN}5.${NC} 打开配置文件编辑"
+        echo -e "${RED}0.${NC} 返回主菜单"
+        echo ""
+        echo -n -e "${BLUE}请选择操作 [0-5]: ${NC}"
+        read -r choice
+        
+        case $choice in
+            1) view_current_config ;;
+            2) modify_auth_password ;;
+            3) modify_port_settings ;;
+            4) modify_obfs_settings ;;
+            5) edit_config_file ;;
+            0) break ;;
+            *)
+                log_error "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
 }
 
 # 节点信息
@@ -593,13 +619,268 @@ show_node_info() {
     fi
 }
 
-# 故障排除
-troubleshoot() {
-    log_info "准备进入故障排除..."
+# 查看当前配置
+view_current_config() {
+    echo ""
+    echo -e "${BLUE}当前配置文件内容:${NC}"
+    echo -e "${CYAN}================================${NC}"
+    cat "$CONFIG_PATH"
+    echo -e "${CYAN}================================${NC}"
+    wait_for_user
+}
+
+# 修改认证密码
+modify_auth_password() {
+    echo ""
+    echo -e "${BLUE}修改认证密码${NC}"
     
-    if safe_source_script "$SCRIPTS_DIR/troubleshoot.sh" "故障排除脚本"; then
-        run_diagnostics
+    # 获取当前密码
+    local current_password
+    current_password=$(grep -E "^\s*password:" "$CONFIG_PATH" | awk '{print $2}' | tr -d '"' || echo "未设置")
+    echo "当前密码: $current_password"
+    echo ""
+    
+    echo -n -e "${YELLOW}输入新密码 (回车生成随机密码): ${NC}"
+    read -r new_password
+    
+    if [[ -z "$new_password" ]]; then
+        new_password=$(openssl rand -base64 12 | tr -d "=+/")
+        echo "生成的随机密码: $new_password"
     fi
+    
+    # 备份配置文件
+    cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+    
+    # 修改密码
+    sed -i "s/password:.*/password: \"$new_password\"/" "$CONFIG_PATH"
+    
+    log_success "认证密码已更新"
+    echo ""
+    echo -n -e "${YELLOW}是否重启服务以应用更改? [Y/n]: ${NC}"
+    read -r restart
+    if [[ ! $restart =~ ^[Nn]$ ]]; then
+        systemctl restart "$SERVICE_NAME"
+        log_success "服务已重启"
+    fi
+    
+    wait_for_user
+}
+
+# 修改端口设置
+modify_port_settings() {
+    echo ""
+    echo -e "${BLUE}修改端口设置${NC}"
+    
+    # 获取当前端口
+    local current_port
+    current_port=$(grep -E "^\s*listen:" "$CONFIG_PATH" | awk -F':' '{print $3}' | tr -d ' ' || echo "443")
+    echo "当前端口: $current_port"
+    echo ""
+    
+    echo -n -e "${YELLOW}输入新端口 [1-65535]: ${NC}"
+    read -r new_port
+    
+    if [[ ! "$new_port" =~ ^[0-9]+$ ]] || [[ "$new_port" -lt 1 ]] || [[ "$new_port" -gt 65535 ]]; then
+        log_error "端口必须是 1-65535 之间的数字"
+        wait_for_user
+        return
+    fi
+    
+    # 检查端口是否被占用
+    if ss -tuln | grep -q ":$new_port "; then
+        log_warn "端口 $new_port 似乎已被占用，请确认"
+        echo -n -e "${YELLOW}是否继续? [y/N]: ${NC}"
+        read -r continue
+        if [[ ! $continue =~ ^[Yy]$ ]]; then
+            return
+        fi
+    fi
+    
+    # 备份配置文件
+    cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+    
+    # 修改端口
+    sed -i "s/:$current_port/:$new_port/g" "$CONFIG_PATH"
+    
+    log_success "端口已更新为: $new_port"
+    echo ""
+    echo -n -e "${YELLOW}是否重启服务以应用更改? [Y/n]: ${NC}"
+    read -r restart
+    if [[ ! $restart =~ ^[Nn]$ ]]; then
+        systemctl restart "$SERVICE_NAME"
+        log_success "服务已重启"
+    fi
+    
+    wait_for_user
+}
+
+# 修改混淆设置
+modify_obfs_settings() {
+    echo ""
+    echo -e "${BLUE}修改混淆设置${NC}"
+    
+    # 检查当前混淆配置
+    local current_obfs
+    current_obfs=$(grep -E "^\s*type: salamander" "$CONFIG_PATH" && echo "启用" || echo "禁用")
+    echo "当前混淆状态: $current_obfs"
+    
+    if [[ "$current_obfs" == "启用" ]]; then
+        local current_obfs_password
+        current_obfs_password=$(grep -A1 "type: salamander" "$CONFIG_PATH" | grep "password:" | awk '{print $2}' | tr -d '"')
+        echo "当前混淆密码: $current_obfs_password"
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}混淆选项:${NC}"
+    echo "1. 启用混淆"
+    echo "2. 禁用混淆"
+    echo "3. 修改混淆密码"
+    echo "0. 返回"
+    echo ""
+    echo -n -e "${BLUE}请选择: ${NC}"
+    read -r obfs_choice
+    
+    case $obfs_choice in
+        1|2|3)
+            # 备份配置文件
+            cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+            
+            case $obfs_choice in
+                1)
+                    echo -n -e "${YELLOW}输入混淆密码 (回车生成随机密码): ${NC}"
+                    read -r obfs_password
+                    if [[ -z "$obfs_password" ]]; then
+                        obfs_password=$(openssl rand -base64 12 | tr -d "=+/")
+                        echo "生成的随机密码: $obfs_password"
+                    fi
+                    
+                    # 添加混淆配置
+                    if ! grep -q "obfs:" "$CONFIG_PATH"; then
+                        sed -i "/listen:/a\\
+obfs:\\
+  type: salamander\\
+  password: \"$obfs_password\"" "$CONFIG_PATH"
+                    else
+                        sed -i "/obfs:/,+2c\\
+obfs:\\
+  type: salamander\\
+  password: \"$obfs_password\"" "$CONFIG_PATH"
+                    fi
+                    log_success "混淆已启用"
+                    ;;
+                2)
+                    # 删除混淆配置
+                    sed -i '/obfs:/,+2d' "$CONFIG_PATH"
+                    log_success "混淆已禁用"
+                    ;;
+                3)
+                    if [[ "$current_obfs" == "禁用" ]]; then
+                        log_error "当前未启用混淆"
+                        wait_for_user
+                        return
+                    fi
+                    
+                    echo -n -e "${YELLOW}输入新的混淆密码: ${NC}"
+                    read -r new_obfs_password
+                    
+                    if [[ -z "$new_obfs_password" ]]; then
+                        log_error "混淆密码不能为空"
+                        wait_for_user
+                        return
+                    fi
+                    
+                    # 修改混淆密码
+                    sed -i "/obfs:/,+2s/password:.*/password: \"$new_obfs_password\"/" "$CONFIG_PATH"
+                    log_success "混淆密码已更新"
+                    ;;
+            esac
+            
+            echo ""
+            echo -n -e "${YELLOW}是否重启服务以应用更改? [Y/n]: ${NC}"
+            read -r restart
+            if [[ ! $restart =~ ^[Nn]$ ]]; then
+                systemctl restart "$SERVICE_NAME"
+                log_success "服务已重启"
+            fi
+            ;;
+        0)
+            return
+            ;;
+        *)
+            log_error "无效选择"
+            ;;
+    esac
+    
+    wait_for_user
+}
+
+# 编辑配置文件
+edit_config_file() {
+    echo ""
+    echo -e "${BLUE}打开配置文件编辑${NC}"
+    echo "配置文件路径: $CONFIG_PATH"
+    echo ""
+    echo -e "${YELLOW}编辑器选项:${NC}"
+    echo "1. 使用 nano (推荐新手)"
+    echo "2. 使用 vim"
+    echo "3. 使用系统默认编辑器"
+    echo "0. 返回"
+    echo ""
+    echo -n -e "${BLUE}请选择编辑器: ${NC}"
+    read -r editor_choice
+    
+    # 备份配置文件
+    cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+    log_info "已备份配置文件"
+    
+    case $editor_choice in
+        1)
+            if command -v nano &> /dev/null; then
+                nano "$CONFIG_PATH"
+            else
+                log_error "nano 未安装，使用系统默认编辑器"
+                ${EDITOR:-vi} "$CONFIG_PATH"
+            fi
+            ;;
+        2)
+            if command -v vim &> /dev/null; then
+                vim "$CONFIG_PATH"
+            else
+                log_error "vim 未安装，使用系统默认编辑器"
+                ${EDITOR:-vi} "$CONFIG_PATH"
+            fi
+            ;;
+        3)
+            ${EDITOR:-vi} "$CONFIG_PATH"
+            ;;
+        0)
+            return
+            ;;
+        *)
+            log_error "无效选择，使用系统默认编辑器"
+            ${EDITOR:-vi} "$CONFIG_PATH"
+            ;;
+    esac
+    
+    echo ""
+    echo -n -e "${YELLOW}配置已修改，是否重启服务以应用更改? [Y/n]: ${NC}"
+    read -r restart
+    if [[ ! $restart =~ ^[Nn]$ ]]; then
+        if systemctl restart "$SERVICE_NAME"; then
+            log_success "服务已重启"
+        else
+            log_error "服务重启失败，请检查配置文件语法"
+            echo -n -e "${YELLOW}是否恢复备份配置? [Y/n]: ${NC}"
+            read -r restore
+            if [[ ! $restore =~ ^[Nn]$ ]]; then
+                cp "$CONFIG_PATH.bak" "$CONFIG_PATH"
+                systemctl restart "$SERVICE_NAME"
+                log_info "已恢复备份配置"
+            fi
+        fi
+    fi
+    
+    wait_for_user
 }
 
 # 卸载服务 - 改进版本，增加更多选项和安全确认
@@ -973,8 +1254,8 @@ main() {
         read -r choice
         
         # 输入验证
-        if ! validate_input "$choice" 0 12; then
-            log_error "请输入 0-12 之间的数字"
+        if ! validate_input "$choice" 0 11; then
+            log_error "请输入 0-11 之间的数字"
             sleep 2
             continue
         fi
@@ -987,11 +1268,10 @@ main() {
             5) view_logs ;;
             6) test_domains ;;
             7) server_domain_config ;;
-            8) advanced_config ;;
+            8) config_management ;;
             9) show_node_info ;;
-            10) troubleshoot ;;
-            11) uninstall_hysteria ;;
-            12) about_script ;;
+            10) uninstall_hysteria ;;
+            11) about_script ;;
             0)
                 echo -e "${GREEN}感谢使用 Hysteria2 配置管理脚本!${NC}"
                 exit 0
