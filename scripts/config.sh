@@ -83,12 +83,34 @@ configure_acme_mode() {
         fi
     done
     
-    # 输入密码
+    # 输入认证密码
     echo -n -e "${BLUE}请输入认证密码 (留空自动生成): ${NC}"
     read -r password
     if [[ -z "$password" ]]; then
         password=$(generate_password 16)
         echo -e "${GREEN}自动生成密码: $password${NC}"
+    fi
+    
+    # 询问是否启用混淆
+    echo ""
+    echo -n -e "${BLUE}是否启用混淆功能? [Y/n]: ${NC}"
+    read -r enable_obfs
+    
+    local obfs_config=""
+    if [[ ! $enable_obfs =~ ^[Nn]$ ]]; then
+        echo -n -e "${BLUE}请输入混淆密码 (留空自动生成): ${NC}"
+        read -r obfs_password
+        if [[ -z "$obfs_password" ]]; then
+            obfs_password=$(generate_password 16)
+            echo -e "${GREEN}自动生成混淆密码: $obfs_password${NC}"
+        fi
+        
+        obfs_config="
+
+obfs:
+  type: salamander
+  salamander:
+    password: $obfs_password"
     fi
     
     # 选择伪装网站
@@ -136,7 +158,7 @@ acme:
 
 auth:
   type: password
-  password: $password
+  password: $password$obfs_config
 
 masquerade:
   type: proxy
@@ -149,7 +171,13 @@ EOF
     echo -e "${GREEN}ACME 配置文件生成成功!${NC}"
     echo -e "${YELLOW}域名: $domain${NC}"
     echo -e "${YELLOW}邮箱: $email${NC}"
-    echo -e "${YELLOW}密码: $password${NC}"
+    echo -e "${YELLOW}认证密码: $password${NC}"
+    if [[ -n "$obfs_password" ]]; then
+        echo -e "${YELLOW}混淆密码: $obfs_password${NC}"
+        echo -e "${YELLOW}混淆类型: Salamander${NC}"
+    else
+        echo -e "${YELLOW}混淆功能: 未启用${NC}"
+    fi
     echo -e "${YELLOW}伪装网站: $masquerade_url${NC}"
 }
 
@@ -194,12 +222,33 @@ configure_self_cert_mode() {
             ;;
     esac
     
-    # 输入密码
+    # 输入认证密码
     echo -n -e "${BLUE}请输入认证密码 (留空自动生成): ${NC}"
     read -r password
     if [[ -z "$password" ]]; then
         password=$(generate_password 16)
         echo -e "${GREEN}自动生成密码: $password${NC}"
+    fi
+    
+    # 询问是否启用混淆
+    echo ""
+    echo -n -e "${BLUE}是否启用混淆功能? [Y/n]: ${NC}"
+    read -r enable_obfs
+    
+    local obfs_config=""
+    if [[ ! $enable_obfs =~ ^[Nn]$ ]]; then
+        echo -n -e "${BLUE}请输入混淆密码 (留空自动生成): ${NC}"
+        read -r obfs_password
+        if [[ -z "$obfs_password" ]]; then
+            obfs_password=$(generate_password 16)
+            echo -e "${GREEN}自动生成混淆密码: $obfs_password${NC}"
+        fi
+        
+        obfs_config="
+obfs:
+  type: salamander
+  salamander:
+    password: $obfs_password"
     fi
     
     # 生成自签名证书
@@ -231,7 +280,7 @@ tls:
 
 auth:
   type: password
-  password: $password
+  password: $password$obfs_config
 
 masquerade:
   type: proxy
@@ -243,7 +292,13 @@ EOF
     echo ""
     echo -e "${GREEN}自签名证书配置生成成功!${NC}"
     echo -e "${YELLOW}证书域名: $cert_domain${NC}"
-    echo -e "${YELLOW}密码: $password${NC}"
+    echo -e "${YELLOW}认证密码: $password${NC}"
+    if [[ -n "$obfs_password" ]]; then
+        echo -e "${YELLOW}混淆密码: $obfs_password${NC}"
+        echo -e "${YELLOW}混淆类型: Salamander${NC}"
+    else
+        echo -e "${YELLOW}混淆功能: 未启用${NC}"
+    fi
     echo -e "${YELLOW}伪装网站: $masquerade_url${NC}"
 }
 

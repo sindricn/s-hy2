@@ -280,21 +280,6 @@ bandwidth:
 EOF
 }
 
-# 生成二维码 (如果有 qrencode)
-generate_qrcode() {
-    local content="$1"
-    
-    if command -v qrencode &> /dev/null; then
-        echo -e "${BLUE}二维码:${NC}"
-        qrencode -t ANSIUTF8 "$content"
-        echo ""
-    else
-        echo -e "${YELLOW}提示: 安装 qrencode 可生成二维码${NC}"
-        echo "Ubuntu/Debian: sudo apt install qrencode"
-        echo "CentOS/RHEL: sudo yum install qrencode"
-        echo ""
-    fi
-}
 
 # 显示节点信息
 display_node_info() {
@@ -402,13 +387,10 @@ show_node_links() {
     echo "$node_link"
     echo ""
     
-    # 生成二维码
-    generate_qrcode "$node_link"
-    
     echo -e "${BLUE}使用说明:${NC}"
     echo "• 复制上方链接到支持 Hysteria2 的客户端"
-    echo "• 或使用手机扫描二维码快速导入"
     echo "• 推荐客户端：v2rayNG (Android)、ShadowRocket (iOS)"
+    echo "• 也可以手动输入到客户端的添加节点功能中"
     echo ""
     
     wait_for_user
@@ -428,32 +410,38 @@ show_subscription_info() {
     echo -e "${CYAN}=== 订阅信息 ===${NC}"
     echo ""
     
-    # Hysteria2 订阅 URL
-    local hysteria2_sub_url="data:text/plain;charset=utf-8;base64,$(echo "$node_link" | base64 -w 0)"
-    echo -e "${YELLOW}1. Hysteria2 订阅 URL:${NC}"
-    echo "$hysteria2_sub_url"
+    # 通用订阅链接 (Base64)
+    local universal_sub_content=$(echo "$node_link" | base64 -w 0)
+    echo -e "${YELLOW}1. 通用订阅链接 (Base64):${NC}"
+    echo "$universal_sub_content"
     echo ""
     
-    # Base64 编码的订阅内容
-    local hysteria2_sub_content=$(echo "$node_link" | base64 -w 0)
-    echo -e "${YELLOW}2. Hysteria2 订阅内容 (Base64):${NC}"
-    echo "$hysteria2_sub_content"
+    # Clash 订阅链接
+    local clash_config=$(generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+    local clash_sub_content=$(echo "$clash_config" | base64 -w 0)
+    echo -e "${YELLOW}2. Clash 订阅内容:${NC}"
+    echo "$clash_sub_content"
     echo ""
     
-    # 生成订阅二维码
-    echo -e "${YELLOW}3. 订阅二维码:${NC}"
-    generate_qrcode "$hysteria2_sub_url"
-    
-    echo -e "${BLUE}订阅使用方法:${NC}"
-    echo "• 方式1：复制 '订阅 URL' 到客户端的订阅功能中"
-    echo "• 方式2：手机扫描二维码添加订阅"
-    echo "• 方式3：手动输入 'Base64 内容' 到客户端"
+    # SingBox 订阅链接
+    local singbox_config=$(generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+    local singbox_sub_content=$(echo "$singbox_config" | base64 -w 0)
+    echo -e "${YELLOW}3. SingBox 订阅内容:${NC}"
+    echo "$singbox_sub_content"
+    echo ""
+    echo -e "${BLUE}订阅使用说明:${NC}"
+    echo "• 通用订阅：适用于大部分支持 Hysteria2 的客户端"
+    echo "• Clash 订阅：专门用于 Clash 系列客户端"
+    echo "• SingBox 订阅：专门用于 SingBox 客户端"
+    echo ""
+    echo -e "${BLUE}使用方法:${NC}"
+    echo "• 复制对应的订阅内容到客户端的订阅功能中"
+    echo "• 或者将订阅内容保存为文件导入客户端"
     echo ""
     echo -e "${BLUE}支持订阅的客户端:${NC}"
-    echo "• v2rayNG (Android) - 推荐"
-    echo "• Clash Verge Rev (桌面端)"
-    echo "• ShadowRocket (iOS)"
-    echo "• NekoBox/NekoRay"
+    echo "• 通用订阅：v2rayNG (Android)、ShadowRocket (iOS)"
+    echo "• Clash 订阅：Clash Verge Rev、ClashX Pro"
+    echo "• SingBox 订阅：SingBox 官方客户端"
     echo ""
     
     wait_for_user
