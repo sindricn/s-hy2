@@ -292,13 +292,11 @@ display_node_info() {
         echo "请先启动服务"
         echo ""
         return
-        return
     fi
     
     # 检查配置文件
     if [[ ! -f "$CONFIG_PATH" ]]; then
         echo -e "${RED}错误: 配置文件不存在${NC}"
-        return
         return
     fi
     
@@ -310,7 +308,6 @@ display_node_info() {
 
     if [[ -z "$config_info" ]]; then
         echo -e "${RED}错误: 无法解析配置文件${NC}"
-        return
         return
     fi
 
@@ -396,6 +393,232 @@ show_node_links() {
     wait_for_user
 }
 
+# 生成订阅文件并创建web访问链接
+generate_subscription_files() {
+    local node_link="$1"
+    local server_address="$2"
+    local port="$3"
+    local auth_password="$4"
+    local obfs_password="$5"
+    local sni_domain="$6"
+    local insecure="$7"
+    
+    local server_ip=$(get_current_server_ip)
+    local sub_dir="/var/www/html/sub"
+    local timestamp=$(date +%s)
+    local uuid=$(openssl rand -hex 8)
+    
+    # 创建订阅文件目录
+    mkdir -p "$sub_dir"
+    
+    # 生成不同格式的订阅文件
+    local hysteria2_sub="$sub_dir/hysteria2-${uuid}.txt"
+    local clash_sub="$sub_dir/clash-${uuid}.yaml"
+    local singbox_sub="$sub_dir/singbox-${uuid}.json"
+    local base64_sub="$sub_dir/base64-${uuid}.txt"
+    
+    # 1. Hysteria2 原生订阅格式
+    echo "$node_link" > "$hysteria2_sub"
+    
+    # 2. Base64编码订阅 (通用格式)
+    echo "$node_link" | base64 -w 0 > "$base64_sub"
+    
+    # 3. Clash订阅格式
+    cat > "$clash_sub" << EOF
+# Clash 订阅配置
+# 更新时间: $(date)
+proxies:
+  - name: "Hysteria2-Server"
+    type: hysteria2
+    server: $server_address
+    port: $port
+    password: $auth_password
+EOF
+    
+    if [[ -n "$obfs_password" ]]; then
+        cat >> "$clash_sub" << EOF
+    obfs: salamander
+    obfs-password: "$obfs_password"
+EOF
+    fi
+    
+    if [[ -n "$sni_domain" ]]; then
+        cat >> "$clash_sub" << EOF
+    sni: $sni_domain
+EOF
+    fi
+    
+    if [[ "$insecure" == "true" ]]; then
+        cat >> "$clash_sub" << EOF
+    skip-cert-verify: true
+EOF
+    fi
+    
+    cat >> "$clash_sub" << EOF
+    alpn:
+      - h3
+
+proxy-groups:
+  - name: "Auto"
+    type: url-test
+    proxies:
+      - "Hysteria2-Server"
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+
+rules:
+  - MATCH,Auto
+EOF
+    
+    # 4. SingBox订阅格式
+    cat > "$singbox_sub" << EOF
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "address": "8.8.8.8"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "listen": "127.0.0.1",
+      "listen_port": 1080,
+      "sniff": true,
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Hysteria2-Server",
+      "server": "$server_address",
+      "server_port": $port,
+      "password": "$auth_password",
+EOF
+    
+    if [[ -n "$obfs_password" ]]; then
+        cat >> "$singbox_sub" << EOF
+      "obfs": {
+        "type": "salamander",
+        "password": "$obfs_password"
+      },
+EOF
+    fi
+    
+    cat >> "$singbox_sub" << EOF
+      "tls": {
+EOF
+    
+    if [[ -n "$sni_domain" ]]; then
+        cat >> "$singbox_sub" << EOF
+        "server_name": "$sni_domain",
+EOF
+    fi
+    
+    if [[ "$insecure" == "true" ]]; then
+        cat >> "$singbox_sub" << EOF
+        "insecure": true,
+EOF
+    fi
+    
+    cat >> "$singbox_sub" << EOF
+        "alpn": ["h3"]
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "geoip": "cn",
+        "outbound": "direct"
+      },
+      {
+        "geosite": "cn",
+        "outbound": "direct"
+      }
+    ],
+    "geoip": {
+      "download_url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+      "download_detour": "Hysteria2-Server"
+    },
+    "geosite": {
+      "download_url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+      "download_detour": "Hysteria2-Server"
+    },
+    "final": "Hysteria2-Server",
+    "auto_detect_interface": true
+  }
+}
+EOF
+    
+    # 设置文件权限
+    chmod 644 "$hysteria2_sub" "$clash_sub" "$singbox_sub" "$base64_sub"
+    
+    # 检查 nginx 或 apache 是否安装，如果没有则尝试安装简单的 HTTP 服务
+    if ! command -v nginx &>/dev/null && ! command -v apache2 &>/dev/null && ! command -v httpd &>/dev/null; then
+        echo -e "${BLUE}正在安装简单的HTTP服务器...${NC}"
+        if command -v apt &>/dev/null; then
+            apt update && apt install -y nginx
+            systemctl start nginx
+            systemctl enable nginx
+        elif command -v yum &>/dev/null; then
+            yum install -y nginx
+            systemctl start nginx
+            systemctl enable nginx
+        elif command -v dnf &>/dev/null; then
+            dnf install -y nginx
+            systemctl start nginx
+            systemctl enable nginx
+        else
+            echo -e "${YELLOW}无法自动安装HTTP服务器，请手动配置web服务器访问 $sub_dir${NC}"
+        fi
+    fi
+    
+    # 生成订阅链接
+    local hysteria2_url="http://${server_ip}/sub/hysteria2-${uuid}.txt"
+    local clash_url="http://${server_ip}/sub/clash-${uuid}.yaml"
+    local singbox_url="http://${server_ip}/sub/singbox-${uuid}.json"
+    local base64_url="http://${server_ip}/sub/base64-${uuid}.txt"
+    
+    echo -e "${GREEN}订阅文件生成成功!${NC}"
+    echo ""
+    echo -e "${YELLOW}Hysteria2 原生订阅链接:${NC}"
+    echo "$hysteria2_url"
+    echo ""
+    echo -e "${YELLOW}通用Base64订阅链接:${NC}"
+    echo "$base64_url"
+    echo ""
+    echo -e "${YELLOW}Clash 订阅链接:${NC}"
+    echo "$clash_url"
+    echo ""
+    echo -e "${YELLOW}SingBox 订阅链接:${NC}"
+    echo "$singbox_url"
+    echo ""
+    echo -e "${BLUE}使用说明:${NC}"
+    echo "• 复制相应的订阅链接到客户端的订阅功能"
+    echo "• Hysteria2客户端使用原生订阅链接"
+    echo "• v2rayNG等客户端可使用Base64订阅链接"
+    echo "• Clash客户端使用Clash订阅链接"
+    echo "• SingBox客户端使用SingBox订阅链接"
+    echo ""
+}
+
 # 显示订阅信息
 show_subscription_info() {
     local node_link="$1"
@@ -410,39 +633,8 @@ show_subscription_info() {
     echo -e "${CYAN}=== 订阅信息 ===${NC}"
     echo ""
     
-    # 通用订阅链接 (Base64)
-    local universal_sub_content=$(echo "$node_link" | base64 -w 0)
-    echo -e "${YELLOW}1. 通用订阅链接 (Base64):${NC}"
-    echo "$universal_sub_content"
-    echo ""
-    
-    # Clash 订阅链接
-    local clash_config=$(generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-    local clash_sub_content=$(echo "$clash_config" | base64 -w 0)
-    echo -e "${YELLOW}2. Clash 订阅内容:${NC}"
-    echo "$clash_sub_content"
-    echo ""
-    
-    # SingBox 订阅链接
-    local singbox_config=$(generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-    local singbox_sub_content=$(echo "$singbox_config" | base64 -w 0)
-    echo -e "${YELLOW}3. SingBox 订阅内容:${NC}"
-    echo "$singbox_sub_content"
-    echo ""
-    echo -e "${BLUE}订阅使用说明:${NC}"
-    echo "• 通用订阅：适用于大部分支持 Hysteria2 的客户端"
-    echo "• Clash 订阅：专门用于 Clash 系列客户端"
-    echo "• SingBox 订阅：专门用于 SingBox 客户端"
-    echo ""
-    echo -e "${BLUE}使用方法:${NC}"
-    echo "• 复制对应的订阅内容到客户端的订阅功能中"
-    echo "• 或者将订阅内容保存为文件导入客户端"
-    echo ""
-    echo -e "${BLUE}支持订阅的客户端:${NC}"
-    echo "• 通用订阅：v2rayNG (Android)、ShadowRocket (iOS)"
-    echo "• Clash 订阅：Clash Verge Rev、ClashX Pro"
-    echo "• SingBox 订阅：SingBox 官方客户端"
-    echo ""
+    # 生成订阅文件并获取链接
+    generate_subscription_files "$node_link" "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
     
     wait_for_user
 }
