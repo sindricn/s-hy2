@@ -158,7 +158,6 @@ download_scripts() {
         "config.sh:配置脚本"
         "service.sh:服务管理脚本"
         "domain-test.sh:域名测试脚本"
-        "advanced.sh:进阶配置脚本"
         "node-info.sh:节点信息脚本"
     )
 
@@ -174,7 +173,6 @@ download_scripts() {
     local templates=(
         "acme-config.yaml:ACME配置模板"
         "self-cert-config.yaml:自签名配置模板"
-        "advanced-config.yaml:高级配置模板"
         "client-config.yaml:客户端配置模板"
     )
 
@@ -267,13 +265,13 @@ show_completion() {
     echo "  ✓ 智能伪装域名选择"
     echo "  ✓ 服务管理和监控"
     echo "  ✓ 节点信息和订阅链接生成"
-    echo "  ✓ 进阶配置支持"
+    echo "  ✓ 配置管理和证书管理"
     echo ""
     echo -e "${YELLOW}快速开始:${NC}"
     echo "1. 运行: sudo s-hy2"
     echo "2. 选择 '1. 安装 Hysteria2'"
     echo "3. 选择 '2. 一键快速配置'"
-    echo "4. 选择 '8. 节点信息' 查看连接信息"
+    echo "4. 选择 '7. 节点信息' 查看连接信息"
     echo ""
     echo -e "${BLUE}现在可以运行 'sudo s-hy2' 开始使用!${NC}"
     echo ""
@@ -321,7 +319,7 @@ uninstall() {
     echo -e "${GREEN}卸载完成${NC}"
 }
 
-# 改进的确认函数 - 支持管道输入
+# 改进的确认函数 - 支持管道输入和回车立即安装
 confirm_installation() {
     # 检查是否通过管道运行
     if [[ -t 0 ]]; then
@@ -339,15 +337,25 @@ confirm_installation() {
             echo -e "${BLUE}如需跳过确认，请使用: ${NC}curl -fsSL <url> | sudo bash -s -- --force"
             echo ""
             echo -e "${YELLOW}将在 10 秒后自动继续安装...${NC}"
-            echo -e "${BLUE}按 Ctrl+C 取消安装${NC}"
+            echo -e "${BLUE}按回车键立即开始安装，或按 Ctrl+C 取消安装${NC}"
             
-            # 倒计时
-            for i in {10..1}; do
-                echo -n -e "\r${YELLOW}自动继续倒计时: $i 秒 ${NC}"
-                sleep 1
+            # 倒计时，但检测回车键
+            local countdown=10
+            while [[ $countdown -gt 0 ]]; do
+                echo -n -e "\r${YELLOW}自动继续倒计时: $countdown 秒 (按回车立即安装) ${NC}"
+                
+                # 使用 read 的超时功能检测输入
+                if read -t 1 -n 1 key 2>/dev/null; then
+                    # 如果检测到回车键或任何输入，立即开始安装
+                    echo ""
+                    echo -e "${GREEN}立即开始安装...${NC}"
+                    return 0
+                fi
+                
+                ((countdown--))
             done
             echo ""
-            echo -e "${GREEN}继续安装...${NC}"
+            echo -e "${GREEN}自动继续安装...${NC}"
         else
             echo -e "${BLUE}强制模式，跳过确认${NC}"
         fi

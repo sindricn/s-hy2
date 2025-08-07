@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Hysteria2 配置管理脚本
-# 版本: 1.0.1
+# 版本: 1.1.0
 # 作者: Hysteria2 Manager
 
 # 颜色定义
@@ -83,6 +83,7 @@ check_script_integrity() {
         "install.sh"
         "config.sh"
         "service.sh"
+        "domain-test.sh"
         "node-info.sh"
     )
     
@@ -107,7 +108,7 @@ check_script_integrity() {
 print_header() {
     clear
     echo -e "${CYAN}================================================${NC}"
-    echo -e "${CYAN}           Hysteria2 配置管理脚本 v1.0.1${NC}"
+    echo -e "${CYAN}           Hysteria2 配置管理脚本 v1.1.0${NC}"
     echo -e "${CYAN}================================================${NC}"
     echo ""
 }
@@ -117,14 +118,14 @@ print_menu() {
     echo -e "${YELLOW}请选择操作:${NC}"
     echo ""
     echo -e "${GREEN} 1.${NC} 安装 Hysteria2"
-    echo -e "${GREEN} 2.${NC} 一键快速配置"
+    echo -e "${GREEN} 2.${NC} 快速配置"
     echo -e "${GREEN} 3.${NC} 手动配置"
-    echo -e "${GREEN} 4.${NC} 管理服务"
-    echo -e "${GREEN} 5.${NC} 查看日志"
-    echo -e "${GREEN} 6.${NC} 测试伪装域名"
-    echo -e "${GREEN} 7.${NC} 服务器域名配置"
-    echo -e "${GREEN} 8.${NC} 配置管理"
-    echo -e "${GREEN} 9.${NC} 节点信息"
+    echo -e "${GREEN} 4.${NC} 修改配置"
+    echo -e "${GREEN} 5.${NC} 域名管理"
+    echo -e "${GREEN} 6.${NC} 证书管理"
+    echo -e "${GREEN} 7.${NC} 服务管理"
+    echo -e "${GREEN} 8.${NC} 节点信息"
+    echo -e "${GREEN} 9.${NC} 查看日志"
     echo -e "${GREEN}10.${NC} 卸载服务"
     echo -e "${GREEN}11.${NC} 关于脚本"
     echo -e "${RED} 0.${NC} 退出"
@@ -329,37 +330,84 @@ view_logs() {
     esac
 }
 
-# 测试伪装域名
-test_domains() {
-    log_info "准备测试伪装域名..."
-    
-    if safe_source_script "$SCRIPTS_DIR/domain-test.sh" "域名测试脚本"; then
-        test_masquerade_domains
-    fi
-}
-
-# 服务器域名配置 - 优化版本
-server_domain_config() {
+# 域名管理 - 重构版本，分离ACME域名和伪装域名
+domain_management() {
     while true; do
         clear
-        echo -e "${CYAN}=== 服务器域名配置 ===${NC}"
+        echo -e "${CYAN}=== 域名管理 ===${NC}"
+        echo ""
+
+        # 显示当前域名配置状态
+        echo -e "${YELLOW}当前域名配置状态:${NC}"
+        
+        # 检查ACME域名
+        if [[ -f "$SERVER_DOMAIN_CONFIG" ]]; then
+            local acme_domain
+            acme_domain=$(cat "$SERVER_DOMAIN_CONFIG")
+            echo -e "ACME域名: ${GREEN}$acme_domain${NC}"
+        else
+            echo -e "ACME域名: ${YELLOW}未配置${NC}"
+        fi
+        
+        # 检查伪装域名
+        local masquerade_domain=""
+        if [[ -f "$CONFIG_PATH" ]]; then
+            masquerade_domain=$(grep -A 3 "masquerade:" "$CONFIG_PATH" 2>/dev/null | grep "url:" | awk '{print $2}' | sed 's|https\?://||' | sed 's|/.*||')
+        fi
+        
+        if [[ -n "$masquerade_domain" ]]; then
+            echo -e "伪装域名: ${GREEN}$masquerade_domain${NC}"
+        else
+            echo -e "伪装域名: ${YELLOW}未配置${NC}"
+        fi
+
+        echo ""
+        echo -e "${YELLOW}域名管理选项:${NC}"
+        echo -e "${GREEN}1.${NC} ACME域名管理"
+        echo -e "${GREEN}2.${NC} 伪装域名管理"
+        echo -e "${GREEN}3.${NC} 测试域名连通性"
+        echo -e "${RED}0.${NC} 返回主菜单"
+        echo ""
+        echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
+        read -r choice
+
+        case $choice in
+            1) acme_domain_management ;;
+            2) masquerade_domain_management ;;
+            3) test_domain_connectivity ;;
+            0) break ;;
+            *) 
+                log_error "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# ACME域名管理
+acme_domain_management() {
+    while true; do
+        clear
+        echo -e "${CYAN}=== ACME域名管理 ===${NC}"
+        echo ""
+        echo -e "${BLUE}ACME域名用于申请SSL证书，需要域名解析到本服务器${NC}"
         echo ""
 
         # 显示当前配置
         if [[ -f "$SERVER_DOMAIN_CONFIG" ]]; then
             local current_domain
             current_domain=$(cat "$SERVER_DOMAIN_CONFIG")
-            echo -e "${GREEN}当前配置域名: $current_domain${NC}"
+            echo -e "${GREEN}当前ACME域名: $current_domain${NC}"
         else
-            echo -e "${YELLOW}当前未配置服务器域名${NC}"
+            echo -e "${YELLOW}当前未配置ACME域名${NC}"
         fi
 
         echo ""
-        echo -e "${YELLOW}域名配置选项:${NC}"
-        echo -e "${GREEN}1.${NC} 设置服务器域名"
+        echo -e "${YELLOW}ACME域名选项:${NC}"
+        echo -e "${GREEN}1.${NC} 设置ACME域名"
         echo -e "${GREEN}2.${NC} 验证域名解析"
-        echo -e "${GREEN}3.${NC} 删除域名配置"
-        echo -e "${RED}0.${NC} 返回主菜单"
+        echo -e "${GREEN}3.${NC} 删除ACME域名配置"
+        echo -e "${RED}0.${NC} 返回上级菜单"
         echo ""
         echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
         read -r choice
@@ -375,6 +423,673 @@ server_domain_config() {
                 ;;
         esac
     done
+}
+
+# 伪装域名管理
+masquerade_domain_management() {
+    while true; do
+        clear
+        echo -e "${CYAN}=== 伪装域名管理 ===${NC}"
+        echo ""
+        echo -e "${BLUE}伪装域名用于TLS握手，提高连接的隐蔽性${NC}"
+        echo ""
+
+        # 显示当前伪装域名配置
+        local current_masquerade=""
+        if [[ -f "$CONFIG_PATH" ]]; then
+            current_masquerade=$(grep -A 3 "masquerade:" "$CONFIG_PATH" 2>/dev/null | grep "url:" | awk '{print $2}')
+        fi
+        
+        if [[ -n "$current_masquerade" ]]; then
+            echo -e "${GREEN}当前伪装域名: $current_masquerade${NC}"
+        else
+            echo -e "${YELLOW}当前未配置伪装域名${NC}"
+        fi
+
+        echo ""
+        echo -e "${YELLOW}伪装域名选项:${NC}"
+        echo -e "${GREEN}1.${NC} 手动设置伪装域名"
+        echo -e "${GREEN}2.${NC} 自动测试选择最佳伪装域名"
+        echo -e "${GREEN}3.${NC} 删除伪装域名配置"
+        echo -e "${RED}0.${NC} 返回上级菜单"
+        echo ""
+        echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
+        read -r choice
+
+        case $choice in
+            1) set_masquerade_domain ;;
+            2) auto_select_masquerade_domain ;;
+            3) remove_masquerade_domain ;;
+            0) break ;;
+            *) 
+                log_error "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# 测试域名连通性
+test_domain_connectivity() {
+    echo ""
+    echo -e "${BLUE}测试域名连通性${NC}"
+    echo ""
+    
+    # 测试ACME域名
+    if [[ -f "$SERVER_DOMAIN_CONFIG" ]]; then
+        local acme_domain
+        acme_domain=$(cat "$SERVER_DOMAIN_CONFIG")
+        echo -e "${YELLOW}测试ACME域名: $acme_domain${NC}"
+        verify_domain_resolution
+    fi
+    
+    # 测试伪装域名
+    if [[ -f "$CONFIG_PATH" ]]; then
+        local masquerade_url
+        masquerade_url=$(grep -A 3 "masquerade:" "$CONFIG_PATH" 2>/dev/null | grep "url:" | awk '{print $2}')
+        if [[ -n "$masquerade_url" ]]; then
+            echo ""
+            echo -e "${YELLOW}测试伪装域名连通性: $masquerade_url${NC}"
+            test_masquerade_connectivity "$masquerade_url"
+        fi
+    fi
+    
+    wait_for_user
+}
+
+# 设置伪装域名
+set_masquerade_domain() {
+    echo ""
+    echo -e "${BLUE}设置伪装域名${NC}"
+    echo "请输入伪装域名 URL (例如: https://www.bing.com):"
+    echo -n -e "${YELLOW}伪装URL: ${NC}"
+    read -r masquerade_url
+
+    if [[ -z "$masquerade_url" ]]; then
+        log_error "伪装URL不能为空"
+        wait_for_user
+        return
+    fi
+
+    # 验证URL格式
+    if [[ ! "$masquerade_url" =~ ^https?:// ]]; then
+        masquerade_url="https://$masquerade_url"
+    fi
+
+    # 备份配置文件
+    if [[ -f "$CONFIG_PATH" ]]; then
+        cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+        
+        # 更新或添加伪装域名配置
+        if grep -q "masquerade:" "$CONFIG_PATH"; then
+            # 更新现有配置
+            sed -i "/masquerade:/,/url:/s|url:.*|url: $masquerade_url|" "$CONFIG_PATH"
+        else
+            # 添加新配置
+            echo "" >> "$CONFIG_PATH"
+            echo "masquerade:" >> "$CONFIG_PATH"
+            echo "  type: proxy" >> "$CONFIG_PATH"
+            echo "  url: $masquerade_url" >> "$CONFIG_PATH"
+        fi
+        
+        log_success "伪装域名已设置: $masquerade_url"
+        
+        echo ""
+        echo -n -e "${YELLOW}是否重启服务以应用更改? [Y/n]: ${NC}"
+        read -r restart
+        if [[ ! $restart =~ ^[Nn]$ ]]; then
+            systemctl restart "$SERVICE_NAME"
+            log_success "服务已重启"
+        fi
+    else
+        log_error "配置文件不存在"
+    fi
+    
+    wait_for_user
+}
+
+# 自动选择最佳伪装域名
+auto_select_masquerade_domain() {
+    echo ""
+    echo -e "${BLUE}自动测试并选择最佳伪装域名${NC}"
+    
+    if safe_source_script "$SCRIPTS_DIR/domain-test.sh" "域名测试脚本"; then
+        test_masquerade_domains
+    fi
+}
+
+# 删除伪装域名配置
+remove_masquerade_domain() {
+    echo ""
+    echo -e "${YELLOW}删除伪装域名配置${NC}"
+
+    if [[ ! -f "$CONFIG_PATH" ]]; then
+        log_warn "配置文件不存在"
+        wait_for_user
+        return
+    fi
+
+    if ! grep -q "masquerade:" "$CONFIG_PATH"; then
+        log_warn "未配置伪装域名"
+        wait_for_user
+        return
+    fi
+
+    local current_masquerade
+    current_masquerade=$(grep -A 3 "masquerade:" "$CONFIG_PATH" | grep "url:" | awk '{print $2}')
+    echo "当前伪装域名: $current_masquerade"
+    echo ""
+    echo -n -e "${RED}确定要删除伪装域名配置吗? [y/N]: ${NC}"
+    read -r confirm
+
+    if [[ $confirm =~ ^[Yy]$ ]]; then
+        cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+        # 删除masquerade配置块
+        sed -i '/masquerade:/,/url:/d' "$CONFIG_PATH"
+        log_success "伪装域名配置已删除"
+        
+        echo ""
+        echo -n -e "${YELLOW}是否重启服务以应用更改? [Y/n]: ${NC}"
+        read -r restart
+        if [[ ! $restart =~ ^[Nn]$ ]]; then
+            systemctl restart "$SERVICE_NAME"
+            log_success "服务已重启"
+        fi
+    else
+        echo -e "${BLUE}取消删除${NC}"
+    fi
+
+    wait_for_user
+}
+
+# 测试伪装域名连通性
+test_masquerade_connectivity() {
+    local url="$1"
+    local domain
+    domain=$(echo "$url" | sed 's|https\?://||' | sed 's|/.*||')
+    
+    echo "正在测试 $url..."
+    
+    # 测试HTTP连接
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null)
+    
+    if [[ "$http_code" =~ ^[23] ]]; then
+        echo -e "${GREEN}✅ HTTP连接测试成功 (状态码: $http_code)${NC}"
+    else
+        echo -e "${YELLOW}⚠️  HTTP连接测试异常 (状态码: $http_code)${NC}"
+    fi
+    
+    # 测试DNS解析
+    if command -v dig &> /dev/null; then
+        local ip
+        ip=$(dig +short "$domain" A 2>/dev/null | head -1)
+        if [[ -n "$ip" && "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo -e "${GREEN}✅ DNS解析成功: $ip${NC}"
+        else
+            echo -e "${RED}❌ DNS解析失败${NC}"
+        fi
+    fi
+}
+
+# 证书管理
+certificate_management() {
+    while true; do
+        clear
+        echo -e "${CYAN}=== 证书管理 ===${NC}"
+        echo ""
+        
+        # 检查当前证书状态
+        show_certificate_status
+        
+        echo ""
+        echo -e "${YELLOW}证书管理选项:${NC}"
+        echo -e "${GREEN}1.${NC} 生成自签名证书"
+        echo -e "${GREEN}2.${NC} 上传自定义证书"
+        echo -e "${GREEN}3.${NC} 查看证书信息"
+        echo -e "${GREEN}4.${NC} 删除证书文件"
+        echo -e "${GREEN}5.${NC} 证书文件路径管理"
+        echo -e "${RED}0.${NC} 返回主菜单"
+        echo ""
+        echo -n -e "${BLUE}请选择操作 [0-5]: ${NC}"
+        read -r choice
+
+        case $choice in
+            1) generate_self_signed_cert ;;
+            2) upload_custom_cert ;;
+            3) show_certificate_info ;;
+            4) remove_certificate_files ;;
+            5) manage_certificate_paths ;;
+            0) break ;;
+            *) 
+                log_error "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# 显示证书状态
+show_certificate_status() {
+    echo -e "${YELLOW}当前证书状态:${NC}"
+    
+    # 检查配置文件中的证书配置
+    if [[ -f "$CONFIG_PATH" ]]; then
+        if grep -q "^tls:" "$CONFIG_PATH"; then
+            local cert_file
+            local key_file
+            cert_file=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "cert:" | awk '{print $2}')
+            key_file=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "key:" | awk '{print $2}')
+            
+            echo -e "证书模式: ${GREEN}手动证书${NC}"
+            echo -e "证书文件: ${cert_file:-未设置}"
+            echo -e "密钥文件: ${key_file:-未设置}"
+            
+            # 检查文件是否存在
+            if [[ -n "$cert_file" && -f "$cert_file" ]]; then
+                echo -e "证书文件状态: ${GREEN}存在${NC}"
+            else
+                echo -e "证书文件状态: ${RED}不存在${NC}"
+            fi
+            
+            if [[ -n "$key_file" && -f "$key_file" ]]; then
+                echo -e "密钥文件状态: ${GREEN}存在${NC}"
+            else
+                echo -e "密钥文件状态: ${RED}不存在${NC}"
+            fi
+        elif grep -q "^acme:" "$CONFIG_PATH"; then
+            echo -e "证书模式: ${GREEN}ACME自动证书${NC}"
+            local domains
+            domains=$(grep -A 5 "^acme:" "$CONFIG_PATH" | grep "domains:" -A 5 | grep -E "^\s*-" | sed 's/^\s*-\s*//' | tr '\n' ' ')
+            echo -e "ACME域名: ${domains:-未设置}"
+        else
+            echo -e "证书模式: ${YELLOW}未配置${NC}"
+        fi
+    else
+        echo -e "证书模式: ${RED}配置文件不存在${NC}"
+    fi
+}
+
+# 生成自签名证书
+generate_self_signed_cert() {
+    echo ""
+    echo -e "${BLUE}生成自签名证书${NC}"
+    echo ""
+    
+    # 获取域名
+    echo -n -e "${YELLOW}请输入证书域名 (留空使用服务器IP): ${NC}"
+    read -r cert_domain
+    
+    if [[ -z "$cert_domain" ]]; then
+        cert_domain=$(get_server_ip)
+        echo "使用服务器IP: $cert_domain"
+    fi
+    
+    # 设置证书文件路径
+    local cert_dir="/etc/hysteria"
+    local cert_file="$cert_dir/server.crt"
+    local key_file="$cert_dir/server.key"
+    
+    # 创建目录
+    mkdir -p "$cert_dir"
+    
+    echo "正在生成自签名证书..."
+    
+    # 生成私钥和证书
+    if openssl req -x509 -nodes -newkey rsa:2048 -keyout "$key_file" -out "$cert_file" -days 365 \
+        -subj "/C=US/ST=State/L=City/O=Organization/CN=$cert_domain" 2>/dev/null; then
+        
+        # 设置权限
+        chmod 600 "$key_file"
+        chmod 644 "$cert_file"
+        chown hysteria:hysteria "$cert_file" "$key_file" 2>/dev/null || true
+        
+        log_success "自签名证书生成成功"
+        echo "证书文件: $cert_file"
+        echo "密钥文件: $key_file"
+        echo "域名: $cert_domain"
+        
+        # 询问是否更新配置文件
+        echo ""
+        echo -n -e "${YELLOW}是否更新配置文件使用新证书? [Y/n]: ${NC}"
+        read -r update_config
+        if [[ ! $update_config =~ ^[Nn]$ ]]; then
+            update_tls_config "$cert_file" "$key_file"
+        fi
+    else
+        log_error "自签名证书生成失败"
+    fi
+    
+    wait_for_user
+}
+
+# 上传自定义证书
+upload_custom_cert() {
+    echo ""
+    echo -e "${BLUE}上传自定义证书${NC}"
+    echo ""
+    echo "请提供证书文件路径："
+    echo ""
+    
+    echo -n -e "${YELLOW}证书文件路径 (.crt/.pem): ${NC}"
+    read -r cert_path
+    
+    echo -n -e "${YELLOW}私钥文件路径 (.key): ${NC}"
+    read -r key_path
+    
+    # 验证文件存在
+    if [[ ! -f "$cert_path" ]]; then
+        log_error "证书文件不存在: $cert_path"
+        wait_for_user
+        return
+    fi
+    
+    if [[ ! -f "$key_path" ]]; then
+        log_error "私钥文件不存在: $key_path"
+        wait_for_user
+        return
+    fi
+    
+    # 验证证书文件格式
+    if ! openssl x509 -in "$cert_path" -text -noout &>/dev/null; then
+        log_error "无效的证书文件格式"
+        wait_for_user
+        return
+    fi
+    
+    if ! openssl rsa -in "$key_path" -check &>/dev/null && ! openssl ec -in "$key_path" -check &>/dev/null; then
+        log_error "无效的私钥文件格式"
+        wait_for_user
+        return
+    fi
+    
+    # 复制到标准位置
+    local cert_dir="/etc/hysteria"
+    local new_cert_file="$cert_dir/custom.crt"
+    local new_key_file="$cert_dir/custom.key"
+    
+    mkdir -p "$cert_dir"
+    
+    if cp "$cert_path" "$new_cert_file" && cp "$key_path" "$new_key_file"; then
+        # 设置权限
+        chmod 600 "$new_key_file"
+        chmod 644 "$new_cert_file"
+        chown hysteria:hysteria "$new_cert_file" "$new_key_file" 2>/dev/null || true
+        
+        log_success "证书文件上传成功"
+        echo "新证书文件: $new_cert_file"
+        echo "新私钥文件: $new_key_file"
+        
+        # 显示证书信息
+        echo ""
+        echo -e "${CYAN}证书信息:${NC}"
+        openssl x509 -in "$new_cert_file" -text -noout | grep -E "(Subject:|Issuer:|Not Before|Not After)"
+        
+        # 询问是否更新配置文件
+        echo ""
+        echo -n -e "${YELLOW}是否更新配置文件使用新证书? [Y/n]: ${NC}"
+        read -r update_config
+        if [[ ! $update_config =~ ^[Nn]$ ]]; then
+            update_tls_config "$new_cert_file" "$new_key_file"
+        fi
+    else
+        log_error "证书文件复制失败"
+    fi
+    
+    wait_for_user
+}
+
+# 更新TLS配置
+update_tls_config() {
+    local cert_file="$1"
+    local key_file="$2"
+    
+    if [[ ! -f "$CONFIG_PATH" ]]; then
+        log_error "配置文件不存在"
+        return 1
+    fi
+    
+    # 备份配置文件
+    cp "$CONFIG_PATH" "$CONFIG_PATH.bak"
+    
+    # 删除现有的ACME配置
+    sed -i '/^acme:/,/^[[:alpha:]]/{ /^acme:/d; /^[[:alpha:]]/!d; }' "$CONFIG_PATH"
+    
+    # 添加或更新TLS配置
+    if grep -q "^tls:" "$CONFIG_PATH"; then
+        # 更新现有TLS配置
+        sed -i "/^tls:/,/^[[:alpha:]]/ {
+            /cert:/c\\  cert: $cert_file
+            /key:/c\\  key: $key_file
+        }" "$CONFIG_PATH"
+    else
+        # 添加新的TLS配置
+        echo "" >> "$CONFIG_PATH"
+        echo "tls:" >> "$CONFIG_PATH"
+        echo "  cert: $cert_file" >> "$CONFIG_PATH"
+        echo "  key: $key_file" >> "$CONFIG_PATH"
+    fi
+    
+    log_success "配置文件已更新"
+    
+    # 询问是否重启服务
+    echo -n -e "${YELLOW}是否重启服务以应用新证书? [Y/n]: ${NC}"
+    read -r restart
+    if [[ ! $restart =~ ^[Nn]$ ]]; then
+        systemctl restart "$SERVICE_NAME"
+        log_success "服务已重启"
+    fi
+}
+
+# 查看证书信息
+show_certificate_info() {
+    echo ""
+    echo -e "${BLUE}证书详细信息${NC}"
+    echo ""
+    
+    if [[ ! -f "$CONFIG_PATH" ]]; then
+        log_error "配置文件不存在"
+        wait_for_user
+        return
+    fi
+    
+    # 获取证书文件路径
+    local cert_file
+    if grep -q "^tls:" "$CONFIG_PATH"; then
+        cert_file=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "cert:" | awk '{print $2}')
+    else
+        log_warn "未配置手动证书，检查ACME证书..."
+        # 查找ACME证书
+        local acme_dir="/var/lib/hysteria"
+        if [[ -d "$acme_dir" ]]; then
+            cert_file=$(find "$acme_dir" -name "*.crt" | head -1)
+        fi
+    fi
+    
+    if [[ -z "$cert_file" || ! -f "$cert_file" ]]; then
+        log_error "未找到证书文件"
+        wait_for_user
+        return
+    fi
+    
+    echo -e "${CYAN}证书文件: $cert_file${NC}"
+    echo ""
+    
+    # 显示证书详细信息
+    echo -e "${YELLOW}证书基本信息:${NC}"
+    openssl x509 -in "$cert_file" -text -noout | grep -A 1 "Subject:"
+    openssl x509 -in "$cert_file" -text -noout | grep -A 1 "Issuer:"
+    
+    echo ""
+    echo -e "${YELLOW}有效期:${NC}"
+    openssl x509 -in "$cert_file" -text -noout | grep -E "Not (Before|After)"
+    
+    echo ""
+    echo -e "${YELLOW}主体备用名称 (SAN):${NC}"
+    openssl x509 -in "$cert_file" -text -noout | grep -A 5 "Subject Alternative Name:" || echo "无"
+    
+    echo ""
+    echo -e "${YELLOW}证书指纹:${NC}"
+    echo -n "MD5: "
+    openssl x509 -in "$cert_file" -noout -fingerprint -md5 | cut -d'=' -f2
+    echo -n "SHA1: "
+    openssl x509 -in "$cert_file" -noout -fingerprint -sha1 | cut -d'=' -f2
+    echo -n "SHA256: "
+    openssl x509 -in "$cert_file" -noout -fingerprint -sha256 | cut -d'=' -f2
+    
+    wait_for_user
+}
+
+# 删除证书文件
+remove_certificate_files() {
+    echo ""
+    echo -e "${YELLOW}删除证书文件${NC}"
+    echo ""
+    
+    # 列出可删除的证书文件
+    local cert_files=()
+    if [[ -f "/etc/hysteria/server.crt" ]]; then
+        cert_files+=("/etc/hysteria/server.crt和server.key (自签名证书)")
+    fi
+    if [[ -f "/etc/hysteria/custom.crt" ]]; then
+        cert_files+=("/etc/hysteria/custom.crt和custom.key (自定义证书)")
+    fi
+    
+    if [[ ${#cert_files[@]} -eq 0 ]]; then
+        log_warn "未找到可删除的证书文件"
+        wait_for_user
+        return
+    fi
+    
+    echo -e "${YELLOW}找到以下证书文件:${NC}"
+    for i in "${!cert_files[@]}"; do
+        echo "$((i+1)). ${cert_files[i]}"
+    done
+    echo "0. 取消"
+    echo ""
+    echo -n -e "${BLUE}请选择要删除的证书 [0-${#cert_files[@]}]: ${NC}"
+    read -r choice
+    
+    if [[ "$choice" == "0" ]]; then
+        echo -e "${BLUE}取消删除${NC}"
+        wait_for_user
+        return
+    fi
+    
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#cert_files[@]} ]]; then
+        log_error "无效选择"
+        wait_for_user
+        return
+    fi
+    
+    local selected_cert="${cert_files[$((choice-1))]}"
+    echo ""
+    echo -e "${RED}警告: 将删除 $selected_cert${NC}"
+    echo -n -e "${YELLOW}确定要删除吗? [y/N]: ${NC}"
+    read -r confirm
+    
+    if [[ $confirm =~ ^[Yy]$ ]]; then
+        case $choice in
+            1)
+                if [[ -f "/etc/hysteria/server.crt" ]]; then
+                    rm -f /etc/hysteria/server.crt /etc/hysteria/server.key
+                    log_success "自签名证书已删除"
+                fi
+                ;;
+            2)
+                if [[ -f "/etc/hysteria/custom.crt" ]]; then
+                    rm -f /etc/hysteria/custom.crt /etc/hysteria/custom.key
+                    log_success "自定义证书已删除"
+                fi
+                ;;
+        esac
+    else
+        echo -e "${BLUE}取消删除${NC}"
+    fi
+    
+    wait_for_user
+}
+
+# 证书文件路径管理
+manage_certificate_paths() {
+    echo ""
+    echo -e "${BLUE}证书文件路径管理${NC}"
+    echo ""
+    
+    if [[ ! -f "$CONFIG_PATH" ]]; then
+        log_error "配置文件不存在"
+        wait_for_user
+        return
+    fi
+    
+    # 显示当前配置
+    if grep -q "^tls:" "$CONFIG_PATH"; then
+        local current_cert
+        local current_key
+        current_cert=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "cert:" | awk '{print $2}')
+        current_key=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "key:" | awk '{print $2}')
+        
+        echo -e "${YELLOW}当前证书配置:${NC}"
+        echo "证书文件: $current_cert"
+        echo "私钥文件: $current_key"
+    else
+        echo -e "${YELLOW}当前未配置手动证书${NC}"
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}路径管理选项:${NC}"
+    echo "1. 修改证书文件路径"
+    echo "2. 修改私钥文件路径"
+    echo "3. 同时修改证书和私钥路径"
+    echo "0. 返回"
+    echo ""
+    echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
+    read -r choice
+    
+    case $choice in
+        1)
+            echo -n -e "${YELLOW}输入新的证书文件路径: ${NC}"
+            read -r new_cert
+            if [[ -f "$new_cert" ]]; then
+                local current_key
+                current_key=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "key:" | awk '{print $2}')
+                update_tls_config "$new_cert" "$current_key"
+            else
+                log_error "证书文件不存在"
+            fi
+            ;;
+        2)
+            echo -n -e "${YELLOW}输入新的私钥文件路径: ${NC}"
+            read -r new_key
+            if [[ -f "$new_key" ]]; then
+                local current_cert
+                current_cert=$(grep -A 5 "^tls:" "$CONFIG_PATH" | grep "cert:" | awk '{print $2}')
+                update_tls_config "$current_cert" "$new_key"
+            else
+                log_error "私钥文件不存在"
+            fi
+            ;;
+        3)
+            echo -n -e "${YELLOW}输入新的证书文件路径: ${NC}"
+            read -r new_cert
+            echo -n -e "${YELLOW}输入新的私钥文件路径: ${NC}"
+            read -r new_key
+            
+            if [[ -f "$new_cert" && -f "$new_key" ]]; then
+                update_tls_config "$new_cert" "$new_key"
+            else
+                log_error "文件不存在，请检查路径"
+            fi
+            ;;
+        0)
+            return
+            ;;
+        *)
+            log_error "无效选择"
+            ;;
+    esac
+    
+    wait_for_user
 }
 
 # 验证域名格式
@@ -1193,18 +1908,18 @@ about_script() {
     echo ""
     echo -e "${YELLOW}基本信息:${NC}"
     echo "脚本名称: S-Hy2 Manager"
-    echo "版本: 1.0.1"
+    echo "版本: 1.1.0"
     echo "功能: 简化 Hysteria2 的安装、配置和管理"
     echo ""
     echo -e "${YELLOW}主要功能:${NC}"
     echo "✓ 一键安装/卸载 Hysteria2"
     echo "✓ 智能配置生成 (ACME/自签名证书)"
-    echo "✓ 伪装域名自动测试和选择"
+    echo "✓ 配置管理 (密码、端口、混淆等)"
+    echo "✓ 域名管理 (ACME域名和伪装域名)"
+    echo "✓ 证书管理 (生成、上传、查看)"
     echo "✓ 端口跳跃配置"
-    echo "✓ 混淆和高级安全选项"
     echo "✓ 服务管理和监控"
     echo "✓ 节点信息和订阅链接生成"
-    echo "✓ 故障诊断和排除"
     echo ""
     echo -e "${YELLOW}系统兼容性:${NC}"
     echo "• Ubuntu 18.04+ / Debian 9+"
@@ -1264,12 +1979,12 @@ main() {
             1) install_hysteria ;;
             2) quick_config ;;
             3) manual_config ;;
-            4) manage_service ;;
-            5) view_logs ;;
-            6) test_domains ;;
-            7) server_domain_config ;;
-            8) config_management ;;
-            9) show_node_info ;;
+            4) config_management ;;
+            5) domain_management ;;
+            6) certificate_management ;;
+            7) manage_service ;;
+            8) show_node_info ;;
+            9) view_logs ;;
             10) uninstall_hysteria ;;
             11) about_script ;;
             0)
