@@ -125,12 +125,11 @@ print_menu() {
     echo -e "${GREEN} 6.${NC} 证书管理"
     echo -e "${GREEN} 7.${NC} 服务管理"
     echo -e "${GREEN} 8.${NC} 订阅链接"
-    echo -e "${GREEN} 9.${NC} 查看日志"
-    echo -e "${GREEN}10.${NC} 卸载服务"
-    echo -e "${GREEN}11.${NC} 关于脚本"
+    echo -e "${GREEN} 9.${NC} 卸载服务"
+    echo -e "${GREEN}10.${NC} 关于脚本"
     echo -e "${RED} 0.${NC} 退出"
     echo ""
-    echo -n -e "${BLUE}请输入选项 [0-11]: ${NC}"
+    echo -n -e "${BLUE}请输入选项 [0-10]: ${NC}"
 }
 
 # 检查 Hysteria2 是否已安装
@@ -283,52 +282,6 @@ manage_service() {
     fi
 }
 
-# 查看日志 - 改进版本
-view_logs() {
-    log_info "查看 Hysteria2 服务日志..."
-    
-    if ! systemctl list-units --type=service | grep -q "$SERVICE_NAME"; then
-        log_error "Hysteria2 服务不存在"
-        wait_for_user
-        return
-    fi
-    
-    echo ""
-    echo -e "${CYAN}=== 最近 50 行日志 ===${NC}"
-    journalctl --no-pager -n 50 -u "$SERVICE_NAME" --no-hostname
-    
-    echo ""
-    echo -e "${YELLOW}日志选项:${NC}"
-    echo "1. 查看实时日志"
-    echo "2. 查看完整日志"
-    echo "3. 查看错误日志"
-    echo "0. 返回"
-    echo ""
-    echo -n -e "${BLUE}请选择 [0-3]: ${NC}"
-    read -r choice
-    
-    case $choice in
-        1)
-            echo -e "${BLUE}实时日志 (按 Ctrl+C 退出):${NC}"
-            journalctl -f -u "$SERVICE_NAME" --no-hostname
-            ;;
-        2)
-            echo -e "${BLUE}完整日志:${NC}"
-            journalctl --no-pager -u "$SERVICE_NAME" --no-hostname | less
-            ;;
-        3)
-            echo -e "${BLUE}错误日志:${NC}"
-            journalctl --no-pager -p err -u "$SERVICE_NAME" --no-hostname
-            wait_for_user
-            ;;
-        0)
-            return
-            ;;
-        *)
-            log_error "无效选择"
-            ;;
-    esac
-}
 
 # 域名管理 - 重构版本，分离ACME域名和伪装域名
 domain_management() {
@@ -1598,46 +1551,29 @@ edit_config_file() {
     wait_for_user
 }
 
-# 卸载服务 - 改进版本，增加更多选项和安全确认
+# 卸载服务
 uninstall_hysteria() {
     clear
     echo -e "${CYAN}=== Hysteria2 卸载向导 ===${NC}"
     echo ""
     
-    # 显示当前状态
-    if check_hysteria_installed; then
-        echo -e "${YELLOW}当前 Hysteria2 状态:${NC}"
-        echo -n "服务状态: "
-        check_service_status
-        if [[ -f "$CONFIG_PATH" ]]; then
-            echo "配置文件: 存在"
-        fi
-        if [[ -d "/etc/hysteria" ]]; then
-            echo "配置目录: 存在"
-        fi
-        echo ""
-    else
-        echo -e "${YELLOW}Hysteria2 未安装，但可以清理残留文件${NC}"
-        echo ""
-    fi
-
     echo -e "${YELLOW}卸载选项:${NC}"
-    echo -e "${GREEN}1.${NC} 仅卸载 Hysteria2 程序 (保留配置和证书)"
-    echo -e "${GREEN}2.${NC} 卸载程序和配置文件 (保留管理脚本)"
-    echo -e "${GREEN}3.${NC} 完全卸载 (包括管理脚本)"
+    echo -e "${GREEN}1.${NC} 卸载hy2及其相关配置文件"
+    echo -e "${GREEN}2.${NC} 卸载删除所有脚本相关的程序和依赖和插件，但是保留脚本"
+    echo -e "${GREEN}3.${NC} 完全卸载，删除所有程序，依赖插件和配置文件，包括脚本"
     echo -e "${RED}0.${NC} 取消"
     echo ""
     echo -e "${CYAN}说明:${NC}"
-    echo "选项1: 保留配置便于重新安装，适合升级或重装"
-    echo "选项2: 清理配置重新开始，保留管理工具"
-    echo "选项3: 完全清理系统，删除所有相关文件"
+    echo "选项1: 卸载 Hysteria2 程序和配置文件"
+    echo "选项2: 卸载所有相关依赖(包括订阅链接依赖)，保留管理脚本"
+    echo "选项3: 完全清理所有内容，包括管理脚本本身"
     echo ""
     echo -n -e "${BLUE}请选择卸载方式 [0-3]: ${NC}"
     read -r uninstall_choice
-
+    
     case $uninstall_choice in
-        1) uninstall_server_only ;;
-        2) uninstall_server_and_config ;;
+        1) uninstall_hy2_and_config ;;
+        2) uninstall_all_dependencies ;;
         3) uninstall_everything ;;
         0) 
             echo -e "${BLUE}取消卸载${NC}"
@@ -1646,133 +1582,190 @@ uninstall_hysteria() {
             log_error "无效选择"
             ;;
     esac
-
     wait_for_user
 }
 
-# 方式1: 仅卸载 Hysteria2 服务器
-uninstall_server_only() {
-    echo ""
-    echo -e "${BLUE}仅卸载 Hysteria2 程序 (保留配置和证书)${NC}"
-    echo ""
-
-    if ! check_hysteria_installed; then
-        log_warn "Hysteria2 未安装"
-        return
-    fi
-
-    echo -e "${YELLOW}此操作将:${NC}"
-    echo "✓ 停止并卸载 Hysteria2 程序"
-    echo "✓ 删除系统服务"
-    echo "✗ 保留配置文件和证书"
-    echo "✗ 保留用户账户"
-    echo "✗ 保留管理脚本"
-    echo ""
-    echo -n -e "${YELLOW}确定要卸载 Hysteria2 程序吗? [y/N]: ${NC}"
-    read -r confirm
-    if [[ ! $confirm =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}取消卸载${NC}"
-        return
-    fi
-
-    log_info "正在卸载 Hysteria2 程序..."
-    
-    # 停止服务
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        systemctl stop "$SERVICE_NAME"
-        log_info "已停止服务"
-    fi
-    
-    # 使用官方卸载脚本
-    if bash <(curl -fsSL https://get.hy2.sh/) --remove 2>/dev/null; then
-        echo ""
-        log_success "Hysteria2 程序卸载完成!"
-        echo ""
-        echo -e "${CYAN}已保留内容:${NC}"
-        echo "• 配置文件: /etc/hysteria/"
-        echo "• SSL 证书文件"
-        echo "• hysteria 用户账户"
-        echo "• 管理脚本: s-hy2"
-        echo ""
-        echo -e "${YELLOW}重新安装:${NC}"
-        echo "运行 's-hy2' 选择 '1. 安装 Hysteria2' 即可重新安装"
-    else
-        log_error "卸载失败，请检查网络连接或手动卸载"
-    fi
-}
-
-# 方式2: 卸载 Hysteria2 服务器及配置文件
-uninstall_server_and_config() {
+# 选项1: 卸载hy2及其相关配置文件
+uninstall_hy2_and_config() {
     echo ""
     echo -e "${BLUE}卸载 Hysteria2 程序和配置文件${NC}"
     echo ""
-
-    echo -e "${YELLOW}此操作将:${NC}"
-    echo "✓ 停止并卸载 Hysteria2 程序"
-    echo "✓ 删除系统服务"
-    echo "✓ 删除配置文件和证书"
-    echo "✓ 删除用户账户"
-    echo "✓ 清理端口跳跃规则"
-    echo "✗ 保留管理脚本"
+    
+    echo -e "${YELLOW}此操作将删除:${NC}"
+    echo "• Hysteria2 程序文件"
+    echo "• 系统服务"
+    echo "• 配置文件和证书"
+    echo "• 用户账户"
+    echo "• 端口跳跃规则"
     echo ""
-    echo -n -e "${YELLOW}确定要卸载程序和配置吗? [y/N]: ${NC}"
+    echo -n -e "${YELLOW}确定要卸载吗? [y/N]: ${NC}"
     read -r confirm
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}取消卸载${NC}"
         return
     fi
-
-    # 清理端口跳跃配置 (需要在删除配置文件前执行)
-    log_info "步骤 1/5: 清理端口跳跃配置..."
+    
+    log_info "开始卸载 Hysteria2..."
+    
+    # 1. 清理端口跳跃规则
+    log_info "步骤 1/5: 清理端口跳跃规则..."
     cleanup_port_hopping
-
-    # 停止服务
-    log_info "步骤 2/5: 停止服务..."
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        systemctl stop "$SERVICE_NAME"
+    
+    # 2. 停止并禁用服务
+    log_info "步骤 2/5: 停止并禁用服务..."
+    if systemctl is-active --quiet hysteria-server.service; then
+        systemctl stop hysteria-server.service
+        log_info "已停止服务"
     fi
-
-    # 卸载程序
+    if systemctl is-enabled --quiet hysteria-server.service 2>/dev/null; then
+        systemctl disable hysteria-server.service 2>/dev/null
+        log_info "已禁用服务"
+    fi
+    
+    # 3. 卸载 Hysteria2 程序
     log_info "步骤 3/5: 卸载 Hysteria2 程序..."
     if check_hysteria_installed; then
-        bash <(curl -fsSL https://get.hy2.sh/) --remove 2>/dev/null || log_warn "程序卸载失败，继续清理"
+        if bash <(curl -fsSL https://get.hy2.sh/) --remove 2>/dev/null; then
+            log_info "Hysteria2 程序卸载成功"
+        else
+            log_warn "程序卸载失败，继续清理"
+        fi
+    else
+        log_info "Hysteria2 未安装，跳过程序卸载"
     fi
-
-    # 删除配置文件和证书
+    
+    # 4. 删除配置文件和证书
     log_info "步骤 4/5: 删除配置文件和证书..."
     if [[ -d "/etc/hysteria" ]]; then
         rm -rf /etc/hysteria
-        log_success "已删除 /etc/hysteria"
+        log_info "已删除 /etc/hysteria 目录"
     fi
-
-    # 清理用户账户和系统残留
+    
+    # 5. 清理用户账户和系统残留
     log_info "步骤 5/5: 清理用户账户和系统残留..."
-    cleanup_system_remnants
-
+    if id "hysteria" &>/dev/null; then
+        userdel -r hysteria 2>/dev/null && log_info "已删除 hysteria 用户"
+    fi
+    
+    # 清理 systemd 残留文件
+    rm -f /etc/systemd/system/multi-user.target.wants/hysteria-server.service 2>/dev/null
+    rm -f /etc/systemd/system/multi-user.target.wants/hysteria-server@*.service 2>/dev/null
+    systemctl daemon-reload
+    
     echo ""
     log_success "Hysteria2 程序和配置文件卸载完成!"
-    echo ""
-    echo -e "${CYAN}已保留内容:${NC}"
-    echo "• 管理脚本: s-hy2"
-    echo ""
-    echo -e "${YELLOW}重新部署:${NC}"
-    echo "运行 's-hy2' 选择安装和配置选项即可重新部署"
 }
 
-# 方式3: 完全卸载
+# 选项2: 卸载删除所有脚本相关的程序和依赖和插件，但是保留脚本
+uninstall_all_dependencies() {
+    echo ""
+    echo -e "${BLUE}卸载所有依赖和插件 (保留管理脚本)${NC}"
+    echo ""
+    
+    echo -e "${YELLOW}此操作将删除:${NC}"
+    echo "• Hysteria2 程序和配置"
+    echo "• nginx (订阅链接依赖)"
+    echo "• 订阅文件 (/var/www/html/sub/)"
+    echo "• 端口跳跃规则"
+    echo "• 系统用户账户"
+    echo ""
+    echo -e "${GREEN}保留内容:${NC}"
+    echo "• 管理脚本 (s-hy2)"
+    echo ""
+    echo -n -e "${YELLOW}确定要卸载所有依赖吗? [y/N]: ${NC}"
+    read -r confirm
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}取消卸载${NC}"
+        return
+    fi
+    
+    log_info "开始卸载所有依赖..."
+    
+    # 1. 先执行基本的 hy2 卸载
+    log_info "步骤 1/4: 卸载 Hysteria2..."
+    # 清理端口跳跃规则
+    cleanup_port_hopping
+    
+    # 停止并禁用服务
+    if systemctl is-active --quiet hysteria-server.service; then
+        systemctl stop hysteria-server.service
+    fi
+    if systemctl is-enabled --quiet hysteria-server.service 2>/dev/null; then
+        systemctl disable hysteria-server.service 2>/dev/null
+    fi
+    
+    # 卸载程序
+    if check_hysteria_installed; then
+        bash <(curl -fsSL https://get.hy2.sh/) --remove 2>/dev/null || log_warn "程序卸载失败"
+    fi
+    
+    # 删除配置
+    rm -rf /etc/hysteria 2>/dev/null
+    
+    # 删除用户
+    if id "hysteria" &>/dev/null; then
+        userdel -r hysteria 2>/dev/null
+    fi
+    
+    # 2. 卸载 nginx (订阅链接依赖)
+    log_info "步骤 2/4: 卸载 nginx..."
+    if command -v nginx &>/dev/null; then
+        systemctl stop nginx 2>/dev/null
+        systemctl disable nginx 2>/dev/null
+        
+        if command -v apt &>/dev/null; then
+            apt remove -y nginx nginx-common nginx-core 2>/dev/null
+            apt autoremove -y 2>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum remove -y nginx 2>/dev/null
+        elif command -v dnf &>/dev/null; then
+            dnf remove -y nginx 2>/dev/null
+        fi
+        log_info "已卸载 nginx"
+    else
+        log_info "nginx 未安装，跳过"
+    fi
+    
+    # 3. 删除订阅文件
+    log_info "步骤 3/4: 删除订阅文件..."
+    if [[ -d "/var/www/html/sub" ]]; then
+        rm -rf /var/www/html/sub
+        log_info "已删除订阅文件目录"
+    fi
+    
+    # 清理可能的web根目录 (如果为空)
+    if [[ -d "/var/www/html" && -z "$(ls -A /var/www/html 2>/dev/null)" ]]; then
+        rmdir /var/www/html 2>/dev/null
+    fi
+    if [[ -d "/var/www" && -z "$(ls -A /var/www 2>/dev/null)" ]]; then
+        rmdir /var/www 2>/dev/null
+    fi
+    
+    # 4. 清理系统残留
+    log_info "步骤 4/4: 清理系统残留..."
+    rm -f /etc/systemd/system/multi-user.target.wants/hysteria-server.service 2>/dev/null
+    rm -f /etc/systemd/system/multi-user.target.wants/hysteria-server@*.service 2>/dev/null
+    systemctl daemon-reload
+    
+    echo ""
+    log_success "所有依赖和插件卸载完成!"
+    echo ""
+    echo -e "${GREEN}管理脚本已保留，可以使用 's-hy2' 重新安装${NC}"
+}
+
+# 选项3: 完全卸载，删除所有程序，依赖插件和配置文件，包括脚本
 uninstall_everything() {
     echo ""
-    echo -e "${RED}完全卸载 - 删除所有相关文件${NC}"
+    echo -e "${RED}完全卸载 - 删除所有内容${NC}"
     echo ""
-
+    
     echo -e "${RED}警告: 此操作将删除:${NC}"
-    echo "• Hysteria2 程序文件"
-    echo "• 所有配置文件和证书"
-    echo "• 用户账户"
-    echo "• 系统服务"
+    echo "• Hysteria2 程序和配置"
+    echo "• nginx 及订阅文件"
     echo "• 管理脚本 (s-hy2)"
-    echo "• 端口跳跃规则"
     echo "• 所有相关目录和文件"
+    echo "• 端口跳跃规则"
+    echo "• 系统用户账户"
     echo ""
     echo -e "${YELLOW}此操作不可逆！请输入 'YES' 确认完全卸载: ${NC}"
     read -r confirm
@@ -1780,115 +1773,82 @@ uninstall_everything() {
         echo -e "${BLUE}取消卸载${NC}"
         return
     fi
-
-    # 执行完全清理
-    perform_complete_uninstall
-}
-
-# 清理端口跳跃配置
-cleanup_port_hopping() {
-    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
-        # shellcheck source=/dev/null
-        source "/etc/hysteria/port-hopping.conf" 2>/dev/null
-        if [[ -n "$INTERFACE" && -n "$START_PORT" && -n "$END_PORT" && -n "$TARGET_PORT" ]]; then
-            iptables -t nat -D PREROUTING -i "$INTERFACE" -p udp --dport "$START_PORT:$END_PORT" -j REDIRECT --to-ports "$TARGET_PORT" 2>/dev/null
-            log_info "已清理端口跳跃 iptables 规则"
-        fi
-    fi
     
-    # 清理其他可能的端口跳跃规则
-    local rules_cleared=0
-    while IFS= read -r line_num; do
-        if [[ -n "$line_num" ]] && iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
-            ((rules_cleared++))
-        fi
-    done < <(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports 443" | awk '{print $1}' | sort -rn)
-    
-    if [[ $rules_cleared -gt 0 ]]; then
-        log_info "已清理 $rules_cleared 条端口跳跃规则"
-    fi
-}
-
-# 清理系统残留
-cleanup_system_remnants() {
-    # 删除用户账户
-    if id "hysteria" &>/dev/null; then
-        userdel -r hysteria 2>/dev/null || userdel hysteria 2>/dev/null
-        log_info "已删除 hysteria 用户"
-    fi
-
-    # 清理 systemd 服务残留
-    local service_files=(
-        "/etc/systemd/system/multi-user.target.wants/hysteria-server.service"
-        "/etc/systemd/system/multi-user.target.wants/hysteria-server@*.service"
-        "/lib/systemd/system/hysteria-server.service"
-        "/usr/lib/systemd/system/hysteria-server.service"
-    )
-    
-    for service_file in "${service_files[@]}"; do
-        if [[ -f "$service_file" ]]; then
-            rm -f "$service_file"
-        fi
-    done
-    
-    systemctl daemon-reload
-    log_info "已清理 systemd 服务残留"
-}
-
-# 执行完全卸载
-perform_complete_uninstall() {
-    echo ""
-    log_info "开始执行完全卸载..."
+    log_info "开始完全卸载..."
     
     # 1. 清理端口跳跃配置
-    log_info "步骤 1/8: 清理端口跳跃配置..."
+    log_info "步骤 1/7: 清理端口跳跃配置..."
     cleanup_port_hopping
-
+    
     # 2. 停止并禁用服务
-    log_info "步骤 2/8: 停止并禁用服务..."
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        systemctl stop "$SERVICE_NAME"
+    log_info "步骤 2/7: 停止并禁用服务..."
+    if systemctl is-active --quiet hysteria-server.service; then
+        systemctl stop hysteria-server.service
     fi
-    if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
-        systemctl disable "$SERVICE_NAME" 2>/dev/null
+    if systemctl is-enabled --quiet hysteria-server.service 2>/dev/null; then
+        systemctl disable hysteria-server.service 2>/dev/null
     fi
-
+    
     # 3. 卸载 Hysteria2 程序
-    log_info "步骤 3/8: 卸载 Hysteria2 程序..."
+    log_info "步骤 3/7: 卸载 Hysteria2 程序..."
     if check_hysteria_installed; then
         bash <(curl -fsSL https://get.hy2.sh/) --remove 2>/dev/null || log_warn "程序卸载失败，继续清理"
     fi
-
-    # 4. 删除配置文件和证书
-    log_info "步骤 4/8: 删除配置文件和证书..."
-    rm -rf /etc/hysteria
-
-    # 5. 清理系统残留
-    log_info "步骤 5/8: 清理系统残留..."
-    cleanup_system_remnants
-
-    # 6. 清理 iptables 规则残留
-    log_info "步骤 6/8: 清理 iptables 规则残留..."
+    
+    # 4. 卸载 nginx 和清理订阅文件
+    log_info "步骤 4/7: 卸载 nginx 和清理订阅文件..."
+    if command -v nginx &>/dev/null; then
+        systemctl stop nginx 2>/dev/null
+        systemctl disable nginx 2>/dev/null
+        
+        if command -v apt &>/dev/null; then
+            apt remove -y nginx nginx-common nginx-core 2>/dev/null
+            apt autoremove -y 2>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum remove -y nginx 2>/dev/null
+        elif command -v dnf &>/dev/null; then
+            dnf remove -y nginx 2>/dev/null
+        fi
+    fi
+    
+    # 删除web目录
+    rm -rf /var/www 2>/dev/null
+    
+    # 5. 删除配置文件和证书
+    log_info "步骤 5/7: 删除配置文件和证书..."
+    rm -rf /etc/hysteria 2>/dev/null
+    
+    # 6. 清理系统残留
+    log_info "步骤 6/7: 清理系统残留..."
+    if id "hysteria" &>/dev/null; then
+        userdel -r hysteria 2>/dev/null
+    fi
+    
+    # 清理 iptables 规则残留
     iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*443" | awk '{print $1}' | tac | while read -r line; do
         iptables -t nat -D PREROUTING "$line" 2>/dev/null
     done
-
-    # 7. 删除管理脚本符号链接
-    log_info "步骤 7/8: 删除管理脚本符号链接..."
-    rm -f /usr/local/bin/hy2-manager
-    rm -f /usr/local/bin/s-hy2
-
-    # 8. 删除管理脚本安装目录
-    log_info "步骤 8/8: 删除管理脚本安装目录..."
+    
+    # 清理 systemd 残留
+    rm -f /etc/systemd/system/multi-user.target.wants/hysteria-server.service 2>/dev/null
+    rm -f /etc/systemd/system/multi-user.target.wants/hysteria-server@*.service 2>/dev/null
+    systemctl daemon-reload
+    
+    # 7. 删除管理脚本
+    log_info "步骤 7/7: 删除管理脚本..."
+    rm -f /usr/local/bin/hy2-manager 2>/dev/null
+    rm -f /usr/local/bin/s-hy2 2>/dev/null
+    
+    # 删除安装目录
     if [[ -d "/opt/s-hy2" ]]; then
         rm -rf /opt/s-hy2
     fi
-
+    
     # 删除桌面快捷方式
     if [[ -n "$SUDO_USER" ]]; then
         rm -f "/home/$SUDO_USER/Desktop/S-Hy2-Manager.desktop" 2>/dev/null
     fi
-
+    
     echo ""
     log_success "完全卸载完成!"
     echo -e "${BLUE}系统已完全清理，感谢使用 S-Hy2 管理脚本${NC}"
@@ -1899,6 +1859,35 @@ perform_complete_uninstall() {
     
     # 由于脚本本身已被删除，这里直接退出
     exit 0
+}
+
+# 清理端口跳跃配置
+cleanup_port_hopping() {
+    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+        # shellcheck source=/dev/null
+        source "/etc/hysteria/port-hopping.conf" 2>/dev/null
+        if [[ -n "$INTERFACE" && -n "$START_PORT" && -n "$END_PORT" && -n "$TARGET_PORT" ]]; then
+            iptables -t nat -D PREROUTING -i "$INTERFACE" -p udp --dport "$START_PORT:$END_PORT" -j REDIRECT --to-ports "$TARGET_PORT" 2>/dev/null
+            log_info "已清理端口跳跃规则"
+        fi
+    fi
+    
+    # 清理其他可能的端口跳跃规则
+    local rules_cleared=0
+    while IFS= read -r line_num; do
+        if [[ -n "$line_num" ]]; then
+            if iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
+                ((rules_cleared++))
+            fi
+        fi
+    done < <(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*443" | awk '{print $1}' | tac)
+    
+    if [[ $rules_cleared -gt 0 ]]; then
+        log_info "清理了 $rules_cleared 条端口跳跃规则"
+    fi
+    
+    # 删除配置文件
+    rm -f "/etc/hysteria/port-hopping.conf" 2>/dev/null
 }
 
 # 关于脚本 - 增强版本
@@ -1969,8 +1958,8 @@ main() {
         read -r choice
         
         # 输入验证
-        if ! validate_input "$choice" 0 11; then
-            log_error "请输入 0-11 之间的数字"
+        if ! validate_input "$choice" 0 10; then
+            log_error "请输入 0-10 之间的数字"
             sleep 2
             continue
         fi
@@ -1984,9 +1973,8 @@ main() {
             6) certificate_management ;;
             7) manage_service ;;
             8) show_node_info ;;
-            9) view_logs ;;
-            10) uninstall_hysteria ;;
-            11) about_script ;;
+            9) uninstall_hysteria ;;
+            10) about_script ;;
             0)
                 echo -e "${GREEN}感谢使用 Hysteria2 配置管理脚本!${NC}"
                 exit 0
