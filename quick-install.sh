@@ -319,7 +319,7 @@ uninstall() {
     echo -e "${GREEN}卸载完成${NC}"
 }
 
-# 改进的确认函数 - 支持管道输入和回车立即安装
+# 改进的确认函数 - 支持管道输入和交互式确认
 confirm_installation() {
     # 检查是否通过管道运行
     if [[ -t 0 ]]; then
@@ -336,26 +336,43 @@ confirm_installation() {
             echo -e "${YELLOW}检测到通过管道运行脚本${NC}"
             echo -e "${BLUE}如需跳过确认，请使用: ${NC}curl -fsSL <url> | sudo bash -s -- --force"
             echo ""
-            echo -e "${YELLOW}将在 10 秒后自动继续安装...${NC}"
-            echo -e "${BLUE}按回车键立即开始安装，或按 Ctrl+C 取消安装${NC}"
+            echo -e "${YELLOW}请选择操作：${NC}"
+            echo -e "${GREEN}Y/y${NC} - 立即开始安装"
+            echo -e "${RED}N/n${NC} - 取消安装"
+            echo -e "${BLUE}其他键或等待 10 秒${NC} - 自动开始安装"
+            echo ""
             
-            # 倒计时，但检测回车键
+            # 倒计时，检测用户输入
             local countdown=10
+            local user_input=""
+            
             while [[ $countdown -gt 0 ]]; do
-                echo -n -e "\r${YELLOW}自动继续倒计时: $countdown 秒 (按回车立即安装) ${NC}"
+                echo -n -e "\r${YELLOW}倒计时: $countdown 秒，请输入选择 [Y/n]，或等待自动安装... ${NC}"
                 
                 # 使用 read 的超时功能检测输入
-                if read -t 1 -n 1 key 2>/dev/null; then
-                    # 如果检测到回车键或任何输入，立即开始安装
+                if read -t 1 -n 1 user_input 2>/dev/null; then
                     echo ""
-                    echo -e "${GREEN}立即开始安装...${NC}"
-                    return 0
+                    case "$user_input" in
+                        [Yy]|$'\n'|"")
+                            echo -e "${GREEN}开始安装...${NC}"
+                            return 0
+                            ;;
+                        [Nn])
+                            echo -e "${RED}取消安装${NC}"
+                            exit 0
+                            ;;
+                        *)
+                            echo -e "${GREEN}开始安装...${NC}"
+                            return 0
+                            ;;
+                    esac
                 fi
                 
                 ((countdown--))
             done
+            
             echo ""
-            echo -e "${GREEN}自动继续安装...${NC}"
+            echo -e "${GREEN}等待时间到，自动开始安装...${NC}"
         else
             echo -e "${BLUE}强制模式，跳过确认${NC}"
         fi

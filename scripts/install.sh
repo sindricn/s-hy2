@@ -14,7 +14,6 @@ install_hysteria2() {
         read -r reinstall
         if [[ ! $reinstall =~ ^[Yy]$ ]]; then
             echo -e "${BLUE}取消安装${NC}"
-            read -p "按回车键继续..."
             return
         fi
     fi
@@ -23,7 +22,6 @@ install_hysteria2() {
     echo -e "${BLUE}检查网络连接...${NC}"
     if ! ping -c 1 google.com &> /dev/null; then
         echo -e "${RED}网络连接失败，请检查网络设置${NC}"
-        read -p "按回车键继续..."
         return
     fi
     
@@ -70,7 +68,6 @@ install_hysteria2() {
     fi
     
     echo ""
-    read -p "按回车键继续..."
 }
 
 # 检查系统信息
@@ -142,7 +139,6 @@ pre_install_check() {
     read -r continue_install
     if [[ $continue_install =~ ^[Nn]$ ]]; then
         echo -e "${BLUE}取消安装${NC}"
-        read -p "按回车键继续..."
         return 1
     fi
     

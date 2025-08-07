@@ -130,11 +130,6 @@ generate_node_link() {
     echo "$link"
 }
 
-# 生成订阅链接
-generate_subscription_link() {
-    local node_link="$1"
-    echo "$node_link" | base64 -w 0
-}
 
 # 生成 Clash 配置
 generate_clash_config() {
@@ -231,73 +226,6 @@ EOF
 EOF
 }
 
-# 生成不同客户端的配置和订阅
-generate_client_subscriptions() {
-    local node_link="$1"
-    local server_address="$2"
-    local port="$3"
-    local auth_password="$4"
-    local obfs_password="$5"
-    local sni_domain="$6"
-    local insecure="$7"
-
-    echo -e "${CYAN}=== 客户端配置和订阅 ===${NC}"
-    echo ""
-
-    # Hysteria2 通用订阅链接
-    local hysteria2_sub=$(echo "$node_link" | base64 -w 0)
-    echo -e "${YELLOW}1. Hysteria2 通用订阅链接:${NC}"
-    echo "$hysteria2_sub"
-    echo ""
-
-    # Hysteria2 节点链接
-    echo -e "${YELLOW}2. Hysteria2 节点链接:${NC}"
-    echo "$node_link"
-    echo ""
-
-    # Clash 配置
-    echo -e "${YELLOW}3. Clash 配置:${NC}"
-    generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-    echo ""
-
-    # SingBox 配置
-    echo -e "${YELLOW}4. SingBox 配置:${NC}"
-    generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-    echo ""
-
-    echo -e "${GREEN}=== 支持 Hysteria2 的客户端 ===${NC}"
-    echo ""
-    echo -e "${BLUE}桌面客户端:${NC}"
-    echo "• Clash Verge Rev (推荐) - Windows/macOS/Linux"
-    echo "• Clash Meta (ClashX Pro) - Windows/macOS/Linux"  
-    echo "• SingBox (官方客户端) - Windows/macOS/Linux"
-    echo "• Hiddify Next - Windows/macOS/Linux"
-    echo "• NekoRay/NekoBox - Windows/Linux"
-    echo "• v2rayN - Windows"
-    echo "• V2rayU - macOS"
-    echo ""
-    echo -e "${BLUE}移动客户端:${NC}"
-    echo "• v2rayNG - Android (推荐)"
-    echo "• NekoBox for Android - Android"
-    echo "• SingBox - Android"
-    echo "• Hiddify Next - Android"
-    echo "• Clash Meta for Android - Android"
-    echo "• ShadowRocket - iOS (推荐)"
-    echo "• Stash - iOS"
-    echo "• QuantumultX - iOS"
-    echo "• Loon - iOS"
-    echo ""
-    echo -e "${BLUE}路由器/OpenWrt:${NC}"
-    echo "• OpenClash - 支持 Hysteria2"
-    echo "• SingBox - 官方路由器版本"
-    echo "• Clash Premium/Meta 核心"
-    echo ""
-    echo -e "${YELLOW}使用建议:${NC}"
-    echo "• 优先选择支持 Hysteria2 的新版客户端"
-    echo "• 推荐使用 Clash Verge Rev 或 v2rayNG"
-    echo "• iOS 用户推荐 ShadowRocket"
-    echo "• 节点链接和订阅链接都可使用"
-}
 
 # 生成客户端配置
 generate_client_config() {
@@ -378,14 +306,14 @@ display_node_info() {
         echo -e "${RED}警告: Hysteria2 服务未运行${NC}"
         echo "请先启动服务"
         echo ""
-        read -p "按回车键继续..."
+        return
         return
     fi
     
     # 检查配置文件
     if [[ ! -f "$CONFIG_PATH" ]]; then
         echo -e "${RED}错误: 配置文件不存在${NC}"
-        read -p "按回车键继续..."
+        return
         return
     fi
     
@@ -397,7 +325,7 @@ display_node_info() {
 
     if [[ -z "$config_info" ]]; then
         echo -e "${RED}错误: 无法解析配置文件${NC}"
-        read -p "按回车键继续..."
+        return
         return
     fi
 
@@ -432,72 +360,23 @@ display_node_info() {
     
     while true; do
         echo -e "${CYAN}=== 节点信息选项 ===${NC}"
-        echo -e "${GREEN}1.${NC} 显示节点链接和二维码"
-        echo -e "${GREEN}2.${NC} 显示客户端配置和订阅"
-        echo -e "${GREEN}3.${NC} 显示 Hysteria2 官方客户端配置"
-        echo -e "${GREEN}4.${NC} 显示 Clash 配置"
-        echo -e "${GREEN}5.${NC} 显示 SingBox 配置"
-        echo -e "${GREEN}6.${NC} 保存完整信息到文件"
-        echo -e "${GREEN}7.${NC} 刷新信息"
+        echo -e "${GREEN}1.${NC} 节点链接"
+        echo -e "${GREEN}2.${NC} 订阅信息"
+        echo -e "${GREEN}3.${NC} 客户端配置"
         echo -e "${RED}0.${NC} 返回主菜单"
         echo ""
-        echo -n -e "${BLUE}请选择操作 [0-7]: ${NC}"
+        echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
         read -r choice
         
         case $choice in
             1)
-                echo ""
-                echo -e "${CYAN}=== 节点链接 ===${NC}"
-                echo "$node_link"
-                echo ""
-                generate_qrcode "$node_link"
-                echo ""
-                read -p "按回车键继续..."
+                show_node_links "$node_link"
                 ;;
             2)
-                echo ""
-                generate_client_subscriptions "$node_link" "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-                echo ""
-                read -p "按回车键继续..."
+                show_subscription_info "$node_link" "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
                 ;;
             3)
-                echo ""
-                echo -e "${CYAN}=== Hysteria2 官方客户端配置 ===${NC}"
-                echo ""
-                generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-                echo ""
-                read -p "按回车键继续..."
-                ;;
-            4)
-                echo ""
-                echo -e "${CYAN}=== Clash 配置 ===${NC}"
-                echo ""
-                generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-                echo ""
-                read -p "按回车键继续..."
-                ;;
-            5)
-                echo ""
-                echo -e "${CYAN}=== SingBox 配置 ===${NC}"
-                echo ""
-                generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-                echo ""
-                read -p "按回车键继续..."
-                ;;
-            6)
-                save_node_info_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping" "$node_link"
-                ;;
-            7)
-                # 刷新信息
-                server_address=$(get_server_address)
-                server_ip=$(get_current_server_ip)
-                configured_domain=$(get_server_domain)
-                config_info=$(parse_config_info)
-                IFS='|' read -r port auth_password obfs_password sni_domain cert_type insecure <<< "$config_info"
-                port_hopping=$(get_port_hopping_info)
-                node_link=$(generate_node_link "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-                echo -e "${GREEN}信息已刷新${NC}"
-                sleep 1
+                show_client_configs "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
                 ;;
             0)
                 break
@@ -508,6 +387,244 @@ display_node_info() {
                 ;;
         esac
     done
+}
+
+# 显示节点链接
+show_node_links() {
+    local node_link="$1"
+    
+    clear
+    echo -e "${CYAN}=== 节点链接 ===${NC}"
+    echo ""
+    
+    # 显示 Hysteria2 节点链接
+    echo -e "${YELLOW}Hysteria2 节点链接:${NC}"
+    echo "$node_link"
+    echo ""
+    
+    # 生成二维码
+    generate_qrcode "$node_link"
+    
+    echo -e "${BLUE}使用说明:${NC}"
+    echo "• 复制上方链接到支持 Hysteria2 的客户端"
+    echo "• 或使用手机扫描二维码快速导入"
+    echo "• 推荐客户端：v2rayNG (Android)、ShadowRocket (iOS)"
+    echo ""
+    
+    wait_for_user
+}
+
+# 显示订阅信息
+show_subscription_info() {
+    local node_link="$1"
+    local server_address="$2"
+    local port="$3"
+    local auth_password="$4"
+    local obfs_password="$5"
+    local sni_domain="$6"
+    local insecure="$7"
+    
+    clear
+    echo -e "${CYAN}=== 订阅信息 ===${NC}"
+    echo ""
+    
+    # Hysteria2 订阅 URL
+    local hysteria2_sub_url="data:text/plain;charset=utf-8;base64,$(echo "$node_link" | base64 -w 0)"
+    echo -e "${YELLOW}1. Hysteria2 订阅 URL:${NC}"
+    echo "$hysteria2_sub_url"
+    echo ""
+    
+    # Base64 编码的订阅内容
+    local hysteria2_sub_content=$(echo "$node_link" | base64 -w 0)
+    echo -e "${YELLOW}2. Hysteria2 订阅内容 (Base64):${NC}"
+    echo "$hysteria2_sub_content"
+    echo ""
+    
+    # 生成订阅二维码
+    echo -e "${YELLOW}3. 订阅二维码:${NC}"
+    generate_qrcode "$hysteria2_sub_url"
+    
+    echo -e "${BLUE}订阅使用方法:${NC}"
+    echo "• 方式1：复制 '订阅 URL' 到客户端的订阅功能中"
+    echo "• 方式2：手机扫描二维码添加订阅"
+    echo "• 方式3：手动输入 'Base64 内容' 到客户端"
+    echo ""
+    echo -e "${BLUE}支持订阅的客户端:${NC}"
+    echo "• v2rayNG (Android) - 推荐"
+    echo "• Clash Verge Rev (桌面端)"
+    echo "• ShadowRocket (iOS)"
+    echo "• NekoBox/NekoRay"
+    echo ""
+    
+    wait_for_user
+}
+
+# 显示客户端配置
+show_client_configs() {
+    local server_address="$1"
+    local port="$2"
+    local auth_password="$3"
+    local obfs_password="$4"
+    local sni_domain="$5"
+    local insecure="$6"
+    
+    while true; do
+        clear
+        echo -e "${CYAN}=== 客户端配置 ===${NC}"
+        echo ""
+        echo -e "${YELLOW}选择客户端配置类型:${NC}"
+        echo -e "${GREEN}1.${NC} Hysteria2 官方客户端配置"
+        echo -e "${GREEN}2.${NC} Clash 配置"
+        echo -e "${GREEN}3.${NC} SingBox 配置"
+        echo -e "${GREEN}4.${NC} 保存所有配置到文件"
+        echo -e "${GREEN}5.${NC} 显示推荐客户端列表"
+        echo -e "${RED}0.${NC} 返回上级菜单"
+        echo ""
+        echo -n -e "${BLUE}请选择配置类型 [0-5]: ${NC}"
+        read -r config_choice
+        
+        case $config_choice in
+            1)
+                clear
+                echo -e "${CYAN}=== Hysteria2 官方客户端配置 ===${NC}"
+                echo ""
+                generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                echo ""
+                echo -e "${BLUE}保存方法:${NC}"
+                echo "• 将上方配置保存为 config.yaml 文件"
+                echo "• 使用 hysteria2 官方客户端加载配置文件"
+                echo ""
+                wait_for_user
+                ;;
+            2)
+                clear
+                echo -e "${CYAN}=== Clash 配置 ===${NC}"
+                echo ""
+                generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                echo ""
+                echo -e "${BLUE}使用方法:${NC}"
+                echo "• 将上方配置添加到 Clash 配置文件的 proxies 部分"
+                echo "• 推荐客户端：Clash Verge Rev, ClashX Pro"
+                echo ""
+                wait_for_user
+                ;;
+            3)
+                clear
+                echo -e "${CYAN}=== SingBox 配置 ===${NC}"
+                echo ""
+                generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                echo ""
+                echo -e "${BLUE}使用方法:${NC}"
+                echo "• 将上方配置添加到 SingBox 配置文件的 outbounds 部分"
+                echo "• 推荐客户端：SingBox 官方客户端"
+                echo ""
+                wait_for_user
+                ;;
+            4)
+                save_all_configs_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                ;;
+            5)
+                show_recommended_clients
+                ;;
+            0)
+                break
+                ;;
+            *)
+                echo -e "${RED}无效选项${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# 保存所有配置到文件
+save_all_configs_to_file() {
+    local server_address="$1"
+    local port="$2"
+    local auth_password="$3"
+    local obfs_password="$4"
+    local sni_domain="$5"
+    local insecure="$6"
+    
+    local output_file="/etc/hysteria/client-configs.txt"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    cat > "$output_file" << EOF
+# Hysteria2 客户端配置文件
+# 生成时间: $timestamp
+
+=== Hysteria2 官方客户端配置 ===
+$(generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+
+=== Clash 配置 ===
+$(generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+
+=== SingBox 配置 ===
+$(generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+EOF
+
+    echo ""
+    echo -e "${GREEN}所有客户端配置已保存到: $output_file${NC}"
+    echo ""
+    wait_for_user
+}
+
+# 显示推荐客户端列表
+show_recommended_clients() {
+    clear
+    echo -e "${CYAN}=== 推荐客户端列表 ===${NC}"
+    echo ""
+    
+    echo -e "${BLUE}🖥️  桌面客户端:${NC}"
+    echo -e "${GREEN}推荐:${NC}"
+    echo "• Clash Verge Rev - 全平台支持，界面友好"
+    echo "• SingBox 官方客户端 - 性能优秀，配置灵活"
+    echo ""
+    echo -e "${YELLOW}其他选择:${NC}"
+    echo "• Clash Meta (ClashX Pro) - 经典选择"
+    echo "• Hiddify Next - 多协议支持"
+    echo "• NekoRay/NekoBox - 轻量级客户端"
+    echo "• v2rayN (Windows) - 简单易用"
+    echo "• V2rayU (macOS) - macOS 专用"
+    echo ""
+    
+    echo -e "${BLUE}📱 移动客户端:${NC}"
+    echo -e "${GREEN}Android 推荐:${NC}"
+    echo "• v2rayNG - 免费开源，功能完整"
+    echo "• NekoBox for Android - 轻量级选择"
+    echo ""
+    echo -e "${GREEN}iOS 推荐:${NC}"
+    echo "• ShadowRocket - 付费但功能强大"
+    echo "• Stash - 良好的 Clash 支持"
+    echo ""
+    echo -e "${YELLOW}其他选择:${NC}"
+    echo "• SingBox (Android/iOS)"
+    echo "• Hiddify Next (Android/iOS)"
+    echo "• QuantumultX (iOS)"
+    echo "• Loon (iOS)"
+    echo ""
+    
+    echo -e "${BLUE}🌐 路由器/OpenWrt:${NC}"
+    echo "• OpenClash - 支持 Hysteria2"
+    echo "• SingBox - 官方路由器版本"
+    echo "• Clash Premium/Meta 核心"
+    echo ""
+    
+    echo -e "${YELLOW}💡 使用建议:${NC}"
+    echo "• 新手推荐：v2rayNG (Android) 或 Clash Verge Rev (桌面)"
+    echo "• iOS 用户推荐：ShadowRocket"
+    echo "• 追求性能：SingBox 官方客户端"
+    echo "• 优先使用节点链接，简单直接"
+    echo "• 如需批量管理，使用订阅功能"
+    echo ""
+    
+    wait_for_user
+}
+
+# 等待用户确认函数
+wait_for_user() {
+    echo ""
+    read -p "按回车键继续..." -r
 }
 
 # 保存节点信息到文件
