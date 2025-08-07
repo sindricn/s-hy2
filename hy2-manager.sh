@@ -124,7 +124,7 @@ print_menu() {
     echo -e "${GREEN} 5.${NC} 域名管理"
     echo -e "${GREEN} 6.${NC} 证书管理"
     echo -e "${GREEN} 7.${NC} 服务管理"
-    echo -e "${GREEN} 8.${NC} 节点信息"
+    echo -e "${GREEN} 8.${NC} 订阅链接"
     echo -e "${GREEN} 9.${NC} 查看日志"
     echo -e "${GREEN}10.${NC} 卸载服务"
     echo -e "${GREEN}11.${NC} 关于脚本"
@@ -1319,9 +1319,9 @@ config_management() {
     done
 }
 
-# 节点信息
+# 订阅链接
 show_node_info() {
-    log_info "准备显示节点信息..."
+    log_info "准备显示订阅链接..."
     
     if ! check_hysteria_installed; then
         log_error "Hysteria2 未安装，请先安装"
@@ -1919,7 +1919,7 @@ about_script() {
     echo "✓ 证书管理 (生成、上传、查看)"
     echo "✓ 端口跳跃配置"
     echo "✓ 服务管理和监控"
-    echo "✓ 节点信息和订阅链接生成"
+    echo "✓ 订阅链接和节点信息生成"
     echo ""
     echo -e "${YELLOW}系统兼容性:${NC}"
     echo "• Ubuntu 18.04+ / Debian 9+"

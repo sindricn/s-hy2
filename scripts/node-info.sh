@@ -389,8 +389,6 @@ show_node_links() {
     echo "• 推荐客户端：v2rayNG (Android)、ShadowRocket (iOS)"
     echo "• 也可以手动输入到客户端的添加节点功能中"
     echo ""
-    
-    wait_for_user
 }
 
 # 生成订阅文件并创建web访问链接
@@ -404,6 +402,18 @@ generate_subscription_files() {
     local insecure="$7"
     
     local server_ip=$(get_current_server_ip)
+    local configured_domain=$(get_server_domain)
+    local server_host=""
+    
+    # 优先使用配置的域名，否则使用IP
+    if [[ -n "$configured_domain" ]]; then
+        server_host="$configured_domain"
+        echo -e "${GREEN}使用配置的服务器域名: $configured_domain${NC}"
+    else
+        server_host="$server_ip"
+        echo -e "${YELLOW}使用服务器IP地址: $server_ip${NC}"
+    fi
+    
     local sub_dir="/var/www/html/sub"
     local timestamp=$(date +%s)
     local uuid=$(openssl rand -hex 8)
@@ -570,31 +580,61 @@ EOF
     # 设置文件权限
     chmod 644 "$hysteria2_sub" "$clash_sub" "$singbox_sub" "$base64_sub"
     
-    # 检查 nginx 或 apache 是否安装，如果没有则尝试安装简单的 HTTP 服务
+    # 检查 nginx 或 apache 是否安装，如果没有则提示安装
     if ! command -v nginx &>/dev/null && ! command -v apache2 &>/dev/null && ! command -v httpd &>/dev/null; then
-        echo -e "${BLUE}正在安装简单的HTTP服务器...${NC}"
-        if command -v apt &>/dev/null; then
-            apt update && apt install -y nginx
-            systemctl start nginx
-            systemctl enable nginx
-        elif command -v yum &>/dev/null; then
-            yum install -y nginx
-            systemctl start nginx
-            systemctl enable nginx
-        elif command -v dnf &>/dev/null; then
-            dnf install -y nginx
-            systemctl start nginx
-            systemctl enable nginx
+        echo -e "${YELLOW}警告: 未检测到HTTP服务器 (nginx/apache)${NC}"
+        echo -e "${BLUE}订阅链接功能需要HTTP服务器支持${NC}"
+        echo ""
+        echo -n -e "${YELLOW}是否自动安装nginx服务器? [Y/n]: ${NC}"
+        read -r install_nginx
+        
+        if [[ ! $install_nginx =~ ^[Nn]$ ]]; then
+            echo -e "${BLUE}正在安装nginx服务器...${NC}"
+            local install_success=false
+            
+            if command -v apt &>/dev/null; then
+                if apt update && apt install -y nginx; then
+                    systemctl start nginx && systemctl enable nginx
+                    install_success=true
+                fi
+            elif command -v yum &>/dev/null; then
+                if yum install -y nginx; then
+                    systemctl start nginx && systemctl enable nginx
+                    install_success=true
+                fi
+            elif command -v dnf &>/dev/null; then
+                if dnf install -y nginx; then
+                    systemctl start nginx && systemctl enable nginx
+                    install_success=true
+                fi
+            fi
+            
+            if $install_success; then
+                echo -e "${GREEN}nginx安装成功!${NC}"
+            else
+                echo -e "${RED}nginx安装失败${NC}"
+                echo -e "${YELLOW}请手动安装HTTP服务器并配置访问 $sub_dir 目录${NC}"
+                echo ""
+                echo -e "${BLUE}手动配置步骤:${NC}"
+                echo "1. 安装nginx: apt install nginx 或 yum install nginx"
+                echo "2. 确保nginx可以访问 $sub_dir 目录"
+                echo "3. 重启nginx服务"
+                echo ""
+                return
+            fi
         else
-            echo -e "${YELLOW}无法自动安装HTTP服务器，请手动配置web服务器访问 $sub_dir${NC}"
+            echo -e "${YELLOW}跳过安装HTTP服务器${NC}"
+            echo -e "${BLUE}注意: 订阅链接将无法通过HTTP访问${NC}"
+            echo -e "${YELLOW}请手动安装HTTP服务器并配置访问 $sub_dir 目录${NC}"
+            echo ""
         fi
     fi
     
-    # 生成订阅链接
-    local hysteria2_url="http://${server_ip}/sub/hysteria2-${uuid}.txt"
-    local clash_url="http://${server_ip}/sub/clash-${uuid}.yaml"
-    local singbox_url="http://${server_ip}/sub/singbox-${uuid}.json"
-    local base64_url="http://${server_ip}/sub/base64-${uuid}.txt"
+    # 生成订阅链接 (优先使用域名)
+    local hysteria2_url="http://${server_host}/sub/hysteria2-${uuid}.txt"
+    local clash_url="http://${server_host}/sub/clash-${uuid}.yaml"
+    local singbox_url="http://${server_host}/sub/singbox-${uuid}.json"
+    local base64_url="http://${server_host}/sub/base64-${uuid}.txt"
     
     echo -e "${GREEN}订阅文件生成成功!${NC}"
     echo ""
@@ -635,8 +675,6 @@ show_subscription_info() {
     
     # 生成订阅文件并获取链接
     generate_subscription_files "$node_link" "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-    
-    wait_for_user
 }
 
 # 显示客户端配置
@@ -674,7 +712,6 @@ show_client_configs() {
                 echo "• 将上方配置保存为 config.yaml 文件"
                 echo "• 使用 hysteria2 官方客户端加载配置文件"
                 echo ""
-                wait_for_user
                 ;;
             2)
                 clear
@@ -686,7 +723,6 @@ show_client_configs() {
                 echo "• 将上方配置添加到 Clash 配置文件的 proxies 部分"
                 echo "• 推荐客户端：Clash Verge Rev, ClashX Pro"
                 echo ""
-                wait_for_user
                 ;;
             3)
                 clear
@@ -698,7 +734,6 @@ show_client_configs() {
                 echo "• 将上方配置添加到 SingBox 配置文件的 outbounds 部分"
                 echo "• 推荐客户端：SingBox 官方客户端"
                 echo ""
-                wait_for_user
                 ;;
             4)
                 save_all_configs_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
@@ -746,7 +781,6 @@ EOF
     echo ""
     echo -e "${GREEN}所有客户端配置已保存到: $output_file${NC}"
     echo ""
-    wait_for_user
 }
 
 # 显示推荐客户端列表
@@ -797,8 +831,6 @@ show_recommended_clients() {
     echo "• 优先使用节点链接，简单直接"
     echo "• 如需批量管理，使用订阅功能"
     echo ""
-    
-    wait_for_user
 }
 
 # 等待用户确认函数
@@ -899,6 +931,4 @@ EOF
 
     echo ""
     echo -e "${GREEN}完整节点信息已保存到: $output_file${NC}"
-    echo ""
-    read -p "按回车键继续..."
 }

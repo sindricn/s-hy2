@@ -384,7 +384,6 @@ interactive_domain_selection() {
     if [[ -z "$results" ]]; then
         echo -e "${RED}域名测试失败，使用默认域名${NC}"
         echo "默认域名: news.ycombinator.com"
-        read -p "按回车键继续..."
         return
     fi
 
@@ -450,7 +449,6 @@ interactive_domain_selection() {
     fi
     
     echo ""
-    read -p "按回车键继续..."
 }
 
 # 更新配置文件中的伪装域名（增加验证）
@@ -540,7 +538,6 @@ test_custom_domains() {
     
     if [[ ${#custom_domains[@]} -eq 0 ]]; then
         echo -e "${YELLOW}未输入任何域名${NC}"
-        read -p "按回车键继续..."
         return
     fi
     
@@ -590,7 +587,6 @@ test_custom_domains() {
     
     rm -f "$results_file"
     echo ""
-    read -p "按回车键继续..."
 }
 
 # 缓存管理功能（新增）
@@ -633,7 +629,6 @@ manage_cache() {
     esac
     
     echo ""
-    read -p "按回车键继续..."
 }
 
 # 主测试函数（优化版本）
@@ -656,7 +651,6 @@ test_masquerade_domains() {
             1)
                 show_test_results
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             2)
                 interactive_domain_selection
@@ -671,7 +665,6 @@ test_masquerade_domains() {
                 echo -e "${GREEN}最优域名: $best_domain${NC}"
                 echo -e "${GREEN}完整URL: $best_url${NC}"
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             5)
                 echo -n -e "${BLUE}请输入要测试的域名: ${NC}"
@@ -680,7 +673,6 @@ test_masquerade_domains() {
                     test_domain_stability "$test_domain"
                 fi
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             6)
                 manage_cache

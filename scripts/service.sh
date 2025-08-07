@@ -922,8 +922,6 @@ EOF
         
         if [[ $choice -ne 0 ]]; then
             echo ""
-            read -p "按回车键继续..."
-            echo ""
         fi
     done
 }
@@ -1180,37 +1178,31 @@ manage_hysteria_service() {
                 clear
                 start_service
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             2)
                 clear
                 stop_service
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             3)
                 clear
                 restart_service
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             4)
                 clear
                 enable_service
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             5)
                 clear
                 disable_service
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             6)
                 clear
                 check_service_detailed
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             7)
                 clear
@@ -1218,13 +1210,11 @@ manage_hysteria_service() {
                 echo ""
                 show_service_metrics
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             8)
                 clear
                 show_connection_stats
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             9)
                 clear
@@ -1234,7 +1224,6 @@ manage_hysteria_service() {
                 clear
                 view_history_logs
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             11)
                 clear
@@ -1244,7 +1233,6 @@ manage_hysteria_service() {
                 clear
                 service_diagnostics
                 echo ""
-                read -p "按回车键继续..."
                 ;;
             0)
                 break

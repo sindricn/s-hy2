@@ -592,7 +592,6 @@ quick_setup_hysteria() {
     if ! check_hysteria_installed; then
         echo -e "${RED}错误: Hysteria2 未安装${NC}"
         echo "请先安装 Hysteria2"
-        read -p "按回车键继续..."
         return
     fi
 
@@ -603,7 +602,6 @@ quick_setup_hysteria() {
         read -r overwrite
         if [[ ! $overwrite =~ ^[Yy]$ ]]; then
             echo -e "${BLUE}取消配置生成${NC}"
-            read -p "按回车键继续..."
             return
         fi
 
@@ -741,7 +739,6 @@ EOF
     fi
 
     echo ""
-    read -p "按回车键继续..."
 }
 
 # 生成节点信息
@@ -810,7 +807,6 @@ generate_hysteria_config() {
     if ! check_hysteria_installed; then
         echo -e "${RED}错误: Hysteria2 未安装${NC}"
         echo "请先安装 Hysteria2"
-        read -p "按回车键继续..."
         return
     fi
     
@@ -821,7 +817,6 @@ generate_hysteria_config() {
         read -r overwrite
         if [[ ! $overwrite =~ ^[Yy]$ ]]; then
             echo -e "${BLUE}取消配置生成${NC}"
-            read -p "按回车键继续..."
             return
         fi
         
@@ -848,7 +843,6 @@ generate_hysteria_config() {
             ;;
         *)
             echo -e "${RED}无效选择${NC}"
-            read -p "按回车键继续..."
             return
             ;;
     esac
@@ -872,6 +866,4 @@ generate_hysteria_config() {
     echo -e "${YELLOW}其他管理命令:${NC}"
     echo "1. 查看状态: systemctl status hysteria-server.service"
     echo "2. 查看日志: journalctl -u hysteria-server.service"
-    echo ""
-    read -p "按回车键继续..."
 }
