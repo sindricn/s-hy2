@@ -1251,10 +1251,11 @@ config_management() {
         echo -e "${GREEN}2.${NC} 修改认证密码"
         echo -e "${GREEN}3.${NC} 修改端口设置"
         echo -e "${GREEN}4.${NC} 修改混淆设置"
-        echo -e "${GREEN}5.${NC} 打开配置文件编辑"
+        echo -e "${GREEN}5.${NC} 端口跳跃配置"
+        echo -e "${GREEN}6.${NC} 打开配置文件编辑"
         echo -e "${RED}0.${NC} 返回主菜单"
         echo ""
-        echo -n -e "${BLUE}请选择操作 [0-5]: ${NC}"
+        echo -n -e "${BLUE}请选择操作 [0-6]: ${NC}"
         read -r choice
         
         case $choice in
@@ -1262,7 +1263,8 @@ config_management() {
             2) modify_auth_password ;;
             3) modify_port_settings ;;
             4) modify_obfs_settings ;;
-            5) edit_config_file ;;
+            5) manage_port_hopping ;;
+            6) edit_config_file ;;
             0) break ;;
             *)
                 log_error "无效选项"
@@ -1371,6 +1373,37 @@ modify_port_settings() {
     sed -i "s/:$current_port/:$new_port/g" "$CONFIG_PATH"
     
     log_success "端口已更新为: $new_port"
+    
+    # 检查端口跳跃配置并询问是否更新
+    if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
+        if check_port_hopping_status; then
+            echo ""
+            echo -e "${YELLOW}检测到已配置端口跳跃${NC}"
+            local hopping_info=$(get_port_hopping_info)
+            if [[ -n "$hopping_info" ]]; then
+                echo "   $hopping_info"
+            fi
+            echo ""
+            echo -n -e "${YELLOW}是否更新端口跳跃的目标端口为 $new_port? [Y/n]: ${NC}"
+            read -r update_hopping
+            if [[ ! $update_hopping =~ ^[Nn]$ ]]; then
+                # 获取当前端口跳跃配置
+                if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+                    source /etc/hysteria/port-hopping.conf 2>/dev/null
+                    if [[ -n "$START_PORT" && -n "$END_PORT" ]]; then
+                        echo -e "${BLUE}正在更新端口跳跃配置...${NC}"
+                        clear_port_hopping_rules
+                        if add_port_hopping_rules "$START_PORT" "$END_PORT" "$new_port"; then
+                            log_success "端口跳跃配置已更新为: $START_PORT-$END_PORT -> $new_port"
+                        else
+                            log_error "端口跳跃配置更新失败"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
     echo ""
     echo -n -e "${YELLOW}是否重启服务以应用更改? [Y/n]: ${NC}"
     read -r restart
@@ -1478,6 +1511,224 @@ obfs:\\
             log_error "无效选择"
             ;;
     esac
+    
+    wait_for_user
+}
+
+# 端口跳跃配置管理
+manage_port_hopping() {
+    while true; do
+        clear
+        echo -e "${CYAN}=== 端口跳跃配置管理 ===${NC}"
+        echo ""
+        
+        # 显示当前端口跳跃状态
+        echo -e "${YELLOW}当前端口跳跃状态:${NC}"
+        if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
+            local current_port=$(get_current_listen_port)
+            echo -e "监听端口: ${GREEN}$current_port${NC}"
+            
+            if check_port_hopping_status; then
+                local hopping_info=$(get_port_hopping_info)
+                echo -e "端口跳跃: ${GREEN}✅ 已启用${NC}"
+                if [[ -n "$hopping_info" ]]; then
+                    echo "   $hopping_info"
+                fi
+            else
+                echo -e "端口跳跃: ${YELLOW}❌ 未启用${NC}"
+            fi
+        fi
+        
+        echo ""
+        echo -e "${YELLOW}端口跳跃管理选项:${NC}"
+        echo -e "${GREEN}1.${NC} 启用端口跳跃"
+        echo -e "${GREEN}2.${NC} 修改端口跳跃配置"
+        echo -e "${GREEN}3.${NC} 禁用端口跳跃"
+        echo -e "${GREEN}4.${NC} 查看端口跳跃详情"
+        echo -e "${RED}0.${NC} 返回上级菜单"
+        echo ""
+        echo -n -e "${BLUE}请选择操作 [0-4]: ${NC}"
+        read -r choice
+        
+        case $choice in
+            1) enable_port_hopping ;;
+            2) modify_port_hopping ;;
+            3) disable_port_hopping ;;
+            4) show_port_hopping_details ;;
+            0) break ;;
+            *)
+                log_error "无效选项"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# 启用端口跳跃
+enable_port_hopping() {
+    echo ""
+    echo -e "${BLUE}启用端口跳跃${NC}"
+    
+    if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
+        if check_port_hopping_status; then
+            log_warn "端口跳跃已启用"
+            wait_for_user
+            return
+        fi
+        
+        echo ""
+        echo -e "${BLUE}配置端口跳跃范围:${NC}"
+        echo -n -e "${BLUE}起始端口 (默认 20000): ${NC}"
+        read -r start_port
+        start_port=${start_port:-20000}
+        
+        echo -n -e "${BLUE}结束端口 (默认 50000): ${NC}"
+        read -r end_port
+        end_port=${end_port:-50000}
+        
+        # 验证端口范围
+        if [[ ! "$start_port" =~ ^[0-9]+$ ]] || [[ ! "$end_port" =~ ^[0-9]+$ ]] || 
+           [[ "$start_port" -lt 1 ]] || [[ "$end_port" -gt 65535 ]] || 
+           [[ "$start_port" -ge "$end_port" ]]; then
+            log_error "端口范围无效"
+            wait_for_user
+            return
+        fi
+        
+        local current_port=$(get_current_listen_port)
+        if add_port_hopping_rules "$start_port" "$end_port" "$current_port"; then
+            log_success "端口跳跃启用成功"
+            echo "配置: $start_port-$end_port -> $current_port"
+        else
+            log_error "端口跳跃启用失败"
+        fi
+    fi
+    
+    wait_for_user
+}
+
+# 修改端口跳跃配置
+modify_port_hopping() {
+    echo ""
+    echo -e "${BLUE}修改端口跳跃配置${NC}"
+    
+    if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
+        if ! check_port_hopping_status; then
+            log_warn "端口跳跃未启用，请先启用"
+            wait_for_user
+            return
+        fi
+        
+        # 获取当前配置
+        local current_info=""
+        if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+            source /etc/hysteria/port-hopping.conf 2>/dev/null
+            if [[ -n "$START_PORT" && -n "$END_PORT" && -n "$TARGET_PORT" ]]; then
+                current_info="当前配置: $START_PORT-$END_PORT -> $TARGET_PORT"
+            fi
+        fi
+        
+        if [[ -n "$current_info" ]]; then
+            echo "$current_info"
+        fi
+        
+        echo ""
+        echo -e "${BLUE}输入新的端口跳跃范围:${NC}"
+        echo -n -e "${BLUE}起始端口 (当前 ${START_PORT:-20000}): ${NC}"
+        read -r new_start_port
+        new_start_port=${new_start_port:-${START_PORT:-20000}}
+        
+        echo -n -e "${BLUE}结束端口 (当前 ${END_PORT:-50000}): ${NC}"
+        read -r new_end_port
+        new_end_port=${new_end_port:-${END_PORT:-50000}}
+        
+        echo -n -e "${BLUE}目标端口 (当前 ${TARGET_PORT:-$(get_current_listen_port)}): ${NC}"
+        read -r new_target_port
+        new_target_port=${new_target_port:-${TARGET_PORT:-$(get_current_listen_port)}}
+        
+        # 验证端口范围
+        if [[ ! "$new_start_port" =~ ^[0-9]+$ ]] || [[ ! "$new_end_port" =~ ^[0-9]+$ ]] || [[ ! "$new_target_port" =~ ^[0-9]+$ ]] || 
+           [[ "$new_start_port" -lt 1 ]] || [[ "$new_end_port" -gt 65535 ]] || [[ "$new_target_port" -lt 1 ]] || [[ "$new_target_port" -gt 65535 ]] || 
+           [[ "$new_start_port" -ge "$new_end_port" ]]; then
+            log_error "端口范围无效"
+            wait_for_user
+            return
+        fi
+        
+        # 清除旧规则并添加新规则
+        echo -e "${BLUE}正在更新端口跳跃配置...${NC}"
+        clear_port_hopping_rules
+        
+        if add_port_hopping_rules "$new_start_port" "$new_end_port" "$new_target_port"; then
+            log_success "端口跳跃配置修改成功"
+            echo "新配置: $new_start_port-$new_end_port -> $new_target_port"
+        else
+            log_error "端口跳跃配置修改失败"
+        fi
+    fi
+    
+    wait_for_user
+}
+
+# 禁用端口跳跃
+disable_port_hopping() {
+    echo ""
+    echo -e "${BLUE}禁用端口跳跃${NC}"
+    
+    if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
+        if ! check_port_hopping_status; then
+            log_warn "端口跳跃未启用"
+            wait_for_user
+            return
+        fi
+        
+        echo -n -e "${YELLOW}确定要禁用端口跳跃吗? [y/N]: ${NC}"
+        read -r confirm
+        if [[ $confirm =~ ^[Yy]$ ]]; then
+            clear_port_hopping_rules
+            log_success "端口跳跃已禁用"
+        else
+            echo -e "${BLUE}取消禁用${NC}"
+        fi
+    fi
+    
+    wait_for_user
+}
+
+# 显示端口跳跃详情
+show_port_hopping_details() {
+    echo ""
+    echo -e "${BLUE}端口跳跃详细信息${NC}"
+    echo ""
+    
+    if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
+        local current_port=$(get_current_listen_port)
+        echo -e "${YELLOW}当前监听端口:${NC} $current_port"
+        
+        if check_port_hopping_status; then
+            echo -e "${YELLOW}端口跳跃状态:${NC} ${GREEN}已启用${NC}"
+            
+            # 显示配置文件信息
+            if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+                echo -e "${YELLOW}配置文件:${NC} /etc/hysteria/port-hopping.conf"
+                echo ""
+                echo -e "${CYAN}配置内容:${NC}"
+                cat /etc/hysteria/port-hopping.conf
+                echo ""
+            fi
+            
+            # 显示当前iptables规则
+            echo -e "${YELLOW}当前 iptables 规则:${NC}"
+            local rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $current_port")
+            if [[ -n "$rules" ]]; then
+                echo "$rules"
+            else
+                echo "未找到相关规则"
+            fi
+        else
+            echo -e "${YELLOW}端口跳跃状态:${NC} ${YELLOW}未启用${NC}"
+        fi
+    fi
     
     wait_for_user
 }
@@ -1874,13 +2125,14 @@ cleanup_port_hopping() {
     
     # 清理其他可能的端口跳跃规则
     local rules_cleared=0
+    # 清理所有REDIRECT规则（不仅仅限于443端口）
     while IFS= read -r line_num; do
         if [[ -n "$line_num" ]]; then
             if iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
                 ((rules_cleared++))
             fi
         fi
-    done < <(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*443" | awk '{print $1}' | tac)
+    done < <(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports" | awk '{print $1}' | tac)
     
     if [[ $rules_cleared -gt 0 ]]; then
         log_info "清理了 $rules_cleared 条端口跳跃规则"

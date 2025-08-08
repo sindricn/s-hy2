@@ -37,6 +37,16 @@ get_server_domain() {
     fi
 }
 
+# 获取当前配置文件中的监听端口
+get_current_listen_port() {
+    if [[ -f "$CONFIG_PATH" ]]; then
+        local port=$(grep -E "^\s*listen:" "$CONFIG_PATH" | awk -F':' '{print $3}' | tr -d ' ' | head -1)
+        echo "${port:-443}"
+    else
+        echo "443"
+    fi
+}
+
 # ACME 配置模式
 configure_acme_mode() {
     echo -e "${BLUE}ACME 自动证书配置${NC}"
@@ -82,6 +92,17 @@ configure_acme_mode() {
             echo -e "${RED}邮箱格式无效，请重新输入${NC}"
         fi
     done
+    
+    # 输入监听端口
+    echo -n -e "${BLUE}请输入监听端口 (默认 443): ${NC}"
+    read -r listen_port
+    listen_port=${listen_port:-443}
+    
+    # 验证端口范围
+    if [[ ! "$listen_port" =~ ^[0-9]+$ ]] || [[ "$listen_port" -lt 1 ]] || [[ "$listen_port" -gt 65535 ]]; then
+        echo -e "${YELLOW}端口范围无效，使用默认端口 443${NC}"
+        listen_port=443
+    fi
     
     # 输入认证密码
     echo -n -e "${BLUE}请输入认证密码 (留空自动生成): ${NC}"
@@ -149,7 +170,7 @@ obfs:
 # Hysteria2 配置文件 - ACME 模式
 # 生成时间: $(date)
 
-listen: :443
+listen: :$listen_port
 
 acme:
   domains:
@@ -171,6 +192,7 @@ EOF
     echo -e "${GREEN}ACME 配置文件生成成功!${NC}"
     echo -e "${YELLOW}域名: $domain${NC}"
     echo -e "${YELLOW}邮箱: $email${NC}"
+    echo -e "${YELLOW}监听端口: $listen_port${NC}"
     echo -e "${YELLOW}认证密码: $password${NC}"
     if [[ -n "$obfs_password" ]]; then
         echo -e "${YELLOW}混淆密码: $obfs_password${NC}"
@@ -222,6 +244,17 @@ configure_self_cert_mode() {
             ;;
     esac
     
+    # 输入监听端口
+    echo -n -e "${BLUE}请输入监听端口 (默认 443): ${NC}"
+    read -r listen_port
+    listen_port=${listen_port:-443}
+    
+    # 验证端口范围
+    if [[ ! "$listen_port" =~ ^[0-9]+$ ]] || [[ "$listen_port" -lt 1 ]] || [[ "$listen_port" -gt 65535 ]]; then
+        echo -e "${YELLOW}端口范围无效，使用默认端口 443${NC}"
+        listen_port=443
+    fi
+    
     # 输入认证密码
     echo -n -e "${BLUE}请输入认证密码 (留空自动生成): ${NC}"
     read -r password
@@ -272,7 +305,7 @@ obfs:
 # Hysteria2 配置文件 - 自签名证书模式
 # 生成时间: $(date)
 
-listen: :443
+listen: :$listen_port
 
 tls:
   cert: /etc/hysteria/server.crt
@@ -292,6 +325,7 @@ EOF
     echo ""
     echo -e "${GREEN}自签名证书配置生成成功!${NC}"
     echo -e "${YELLOW}证书域名: $cert_domain${NC}"
+    echo -e "${YELLOW}监听端口: $listen_port${NC}"
     echo -e "${YELLOW}认证密码: $password${NC}"
     if [[ -n "$obfs_password" ]]; then
         echo -e "${YELLOW}混淆密码: $obfs_password${NC}"
@@ -342,12 +376,12 @@ get_network_interface() {
 # 改进的端口跳跃状态检查
 check_port_hopping_status() {
     local interface=$(get_network_interface)
-    local target_port="443"
+    local target_port=$(get_current_listen_port)
     
     # 多种检测方式
     local found=false
     
-    # 方式1: 检查 REDIRECT 规则到 443 端口
+    # 方式1: 检查 REDIRECT 规则到目标端口
     if iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep -q "REDIRECT.*dpt:.*--to-ports $target_port"; then
         found=true
     fi
@@ -376,7 +410,7 @@ check_port_hopping_status() {
         fi
     fi
     
-    # 方式4: 通用检查 - 查找所有 REDIRECT 到 443 的规则
+    # 方式4: 通用检查 - 查找所有 REDIRECT 到目标端口的规则
     if iptables -t nat -S PREROUTING 2>/dev/null | grep -E "REDIRECT.*--to-ports $target_port" >/dev/null; then
         found=true
     fi
@@ -403,16 +437,17 @@ get_port_hopping_info() {
     
     # 如果配置文件没有信息，尝试从 iptables 规则解析
     if [[ -z "$info" ]]; then
-        local rule_info=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports 443" | head -1)
+        local target_port=$(get_current_listen_port)
+        local rule_info=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports $target_port" | head -1)
         if [[ -n "$rule_info" ]]; then
             # 尝试提取端口范围信息
             if [[ "$rule_info" =~ dpts:([0-9]+):([0-9]+) ]]; then
                 local start_port="${BASH_REMATCH[1]}"
                 local end_port="${BASH_REMATCH[2]}"
-                info="端口范围: $start_port-$end_port -> 443"
+                info="端口范围: $start_port-$end_port -> $target_port"
             elif [[ "$rule_info" =~ dpt:([0-9]+) ]]; then
                 local port="${BASH_REMATCH[1]}"
-                info="单端口: $port -> 443"
+                info="单端口: $port -> $target_port"
             else
                 info="检测到端口跳跃规则"
             fi
@@ -442,10 +477,11 @@ clear_port_hopping_rules() {
         fi
     fi
     
-    # 方式2: 清除所有到443端口的REDIRECT规则
+    # 方式2: 清除所有到目标端口的REDIRECT规则
+    local target_port=$(get_current_listen_port)
     local rules_to_delete=()
     while IFS= read -r line; do
-        if [[ "$line" =~ ^-A\ PREROUTING.*REDIRECT.*--to-ports\ 443 ]]; then
+        if [[ "$line" =~ ^-A\ PREROUTING.*REDIRECT.*--to-ports\ $target_port ]]; then
             rules_to_delete+=("${line/-A/-D}")
         fi
     done < <(iptables -t nat -S PREROUTING 2>/dev/null)
@@ -458,7 +494,7 @@ clear_port_hopping_rules() {
     done
     
     # 方式3: 通用清理方式（基于行号）
-    local line_numbers=($(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports 443" | awk '{print $1}' | sort -rn))
+    local line_numbers=($(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $target_port" | awk '{print $1}' | sort -rn))
     for line_num in "${line_numbers[@]}"; do
         if iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
             echo "已清除第 $line_num 行规则"
@@ -484,7 +520,7 @@ add_port_hopping_rules() {
     local interface=$(get_network_interface)
     local start_port=${1:-20000}
     local end_port=${2:-50000}
-    local target_port=${3:-443}
+    local target_port=${3:-$(get_current_listen_port)}
     
     echo -e "${BLUE}正在添加端口跳跃规则...${NC}"
     
@@ -551,7 +587,8 @@ ask_port_hopping_config() {
             read -r end_port
             end_port=${end_port:-50000}
             
-            if add_port_hopping_rules "$start_port" "$end_port" "443"; then
+            local current_port=$(get_current_listen_port)
+            if add_port_hopping_rules "$start_port" "$end_port" "$current_port"; then
                 echo -e "${GREEN}端口跳跃配置完成${NC}"
             fi
         else
@@ -697,7 +734,7 @@ EOF
     echo -e "${BLUE}步骤 6/7: 配置端口跳跃...${NC}"
     local start_port=20000
     local end_port=50000
-    local target_port=443
+    local target_port=$(get_current_listen_port)
 
     if add_port_hopping_rules "$start_port" "$end_port" "$target_port"; then
         echo "端口跳跃配置成功 ($start_port-$end_port -> $target_port)"
