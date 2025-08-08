@@ -203,6 +203,3 @@ A: Ubuntu 18.04+、Debian 9+、CentOS 7+、RHEL 7+、Fedora 30+。
 ### Q: 如何卸载？
 A: 运行脚本选择 "10. 卸载服务"，提供多种卸载方式选择。
 
-## 许可证
-
-MIT License
