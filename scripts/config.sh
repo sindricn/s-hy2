@@ -2,6 +2,12 @@
 
 # Hysteria2 配置生成脚本
 
+# 等待用户确认
+wait_for_user() {
+    echo ""
+    read -p "按回车键继续..." -r
+}
+
 # 生成随机密码
 generate_password() {
     local length=${1:-12}
@@ -201,6 +207,8 @@ EOF
         echo -e "${YELLOW}混淆功能: 未启用${NC}"
     fi
     echo -e "${YELLOW}伪装网站: $masquerade_url${NC}"
+    
+    wait_for_user
 }
 
 # 自签名证书配置模式
@@ -334,6 +342,8 @@ EOF
         echo -e "${YELLOW}混淆功能: 未启用${NC}"
     fi
     echo -e "${YELLOW}伪装网站: $masquerade_url${NC}"
+    
+    wait_for_user
 }
 
 # 获取服务器公网IP
@@ -776,6 +786,7 @@ EOF
     fi
 
     echo ""
+    wait_for_user
 }
 
 # 生成节点信息
@@ -903,4 +914,6 @@ generate_hysteria_config() {
     echo -e "${YELLOW}其他管理命令:${NC}"
     echo "1. 查看状态: systemctl status hysteria-server.service"
     echo "2. 查看日志: journalctl -u hysteria-server.service"
+    
+    wait_for_user
 }
