@@ -1674,22 +1674,136 @@ modify_port_hopping() {
 disable_port_hopping() {
     echo ""
     echo -e "${BLUE}禁用端口跳跃${NC}"
+    echo ""
     
     if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
-        if ! check_port_hopping_status; then
-            log_warn "端口跳跃未启用"
+        # 首先显示系统中所有的端口跳跃规则
+        echo -e "${YELLOW}系统中的端口跳跃规则:${NC}"
+        local all_redirect_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+        
+        if [[ -n "$all_redirect_rules" ]]; then
+            echo "$all_redirect_rules"
+            echo ""
+            
+            local redirect_count=$(echo "$all_redirect_rules" | wc -l)
+            echo -e "${GREEN}发现 $redirect_count 条端口重定向规则${NC}"
+        else
+            echo "未找到任何端口重定向规则"
+            echo -e "${YELLOW}系统中没有端口跳跃配置${NC}"
             wait_for_user
             return
         fi
         
-        echo -n -e "${YELLOW}确定要禁用端口跳跃吗? [y/N]: ${NC}"
-        read -r confirm
-        if [[ $confirm =~ ^[Yy]$ ]]; then
-            clear_port_hopping_rules
-            log_success "端口跳跃已禁用"
-        else
-            echo -e "${BLUE}取消禁用${NC}"
-        fi
+        echo ""
+        echo -e "${YELLOW}禁用选项:${NC}"
+        echo -e "${GREEN}1.${NC} 禁用当前监听端口的端口跳跃"
+        echo -e "${GREEN}2.${NC} 禁用指定端口的端口跳跃"  
+        echo -e "${GREEN}3.${NC} 禁用所有端口跳跃规则"
+        echo -e "${RED}0.${NC} 取消操作"
+        echo ""
+        echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
+        read -r choice
+        
+        case $choice in
+            1)
+                # 禁用当前监听端口的端口跳跃
+                local current_port=$(get_current_listen_port)
+                echo ""
+                echo -e "${BLUE}当前监听端口: $current_port${NC}"
+                
+                local current_port_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $current_port")
+                if [[ -n "$current_port_rules" ]]; then
+                    echo -e "${YELLOW}将要删除的规则:${NC}"
+                    echo "$current_port_rules"
+                    echo ""
+                    echo -n -e "${YELLOW}确定要禁用当前监听端口的端口跳跃吗? [y/N]: ${NC}"
+                    read -r confirm
+                    if [[ $confirm =~ ^[Yy]$ ]]; then
+                        clear_port_hopping_rules
+                        log_success "当前监听端口的端口跳跃已禁用"
+                    else
+                        echo -e "${BLUE}取消操作${NC}"
+                    fi
+                else
+                    echo -e "${YELLOW}当前监听端口没有端口跳跃配置${NC}"
+                fi
+                ;;
+            2)
+                # 禁用指定端口的端口跳跃
+                echo ""
+                echo -e "${BLUE}禁用指定端口的端口跳跃${NC}"
+                
+                # 显示所有目标端口
+                echo -e "${YELLOW}系统中的目标端口:${NC}"
+                local target_ports=($(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT" | grep -o "to-ports [0-9]*" | awk '{print $2}' | sort -u))
+                
+                if [[ ${#target_ports[@]} -eq 0 ]]; then
+                    echo "未找到任何目标端口"
+                    wait_for_user
+                    return
+                fi
+                
+                local i=1
+                for port in "${target_ports[@]}"; do
+                    local port_rules_count=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports $port" | wc -l)
+                    echo "$i. 端口 $port ($port_rules_count 条规则)"
+                    ((i++))
+                done
+                
+                echo ""
+                echo -n -e "${BLUE}请输入要禁用的端口号: ${NC}"
+                read -r target_port
+                
+                if [[ "$target_port" =~ ^[0-9]+$ ]] && [[ "$target_port" -ge 1 ]] && [[ "$target_port" -le 65535 ]]; then
+                    local specific_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $target_port")
+                    if [[ -n "$specific_rules" ]]; then
+                        echo ""
+                        echo -e "${YELLOW}将要删除端口 $target_port 的规则:${NC}"
+                        echo "$specific_rules"
+                        echo ""
+                        echo -n -e "${YELLOW}确定要禁用端口 $target_port 的端口跳跃吗? [y/N]: ${NC}"
+                        read -r confirm
+                        if [[ $confirm =~ ^[Yy]$ ]]; then
+                            clear_specific_port_rules "$target_port"
+                            log_success "端口 $target_port 的端口跳跃已禁用"
+                        else
+                            echo -e "${BLUE}取消操作${NC}"
+                        fi
+                    else
+                        echo -e "${YELLOW}端口 $target_port 没有端口跳跃配置${NC}"
+                    fi
+                else
+                    echo -e "${RED}无效的端口号${NC}"
+                fi
+                ;;
+            3)
+                # 禁用所有端口跳跃规则
+                echo ""
+                echo -e "${BLUE}禁用所有端口跳跃规则${NC}"
+                echo -e "${RED}警告: 这将删除系统中所有的端口重定向规则!${NC}"
+                echo ""
+                echo -n -e "${YELLOW}确定要禁用所有端口跳跃规则吗? [y/N]: ${NC}"
+                read -r confirm
+                if [[ $confirm =~ ^[Yy]$ ]]; then
+                    echo -n -e "${RED}再次确认: 这是危险操作，确定继续吗? [y/N]: ${NC}"
+                    read -r final_confirm
+                    if [[ $final_confirm =~ ^[Yy]$ ]]; then
+                        clear_all_port_hopping_rules
+                        log_success "所有端口跳跃规则已禁用"
+                    else
+                        echo -e "${BLUE}取消操作${NC}"
+                    fi
+                else
+                    echo -e "${BLUE}取消操作${NC}"
+                fi
+                ;;
+            0)
+                echo -e "${BLUE}取消操作${NC}"
+                ;;
+            *)
+                echo -e "${RED}无效选项${NC}"
+                ;;
+        esac
     fi
     
     wait_for_user
@@ -1704,6 +1818,27 @@ show_port_hopping_details() {
     if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
         local current_port=$(get_current_listen_port)
         echo -e "${YELLOW}当前监听端口:${NC} $current_port"
+        echo ""
+        
+        # 显示系统中所有的端口跳跃配置
+        echo -e "${CYAN}=== 系统端口跳跃配置概览 ===${NC}"
+        
+        # 显示所有 REDIRECT 到端口的 iptables 规则
+        echo -e "${YELLOW}所有 iptables REDIRECT 规则:${NC}"
+        local all_redirect_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+        if [[ -n "$all_redirect_rules" ]]; then
+            echo "$all_redirect_rules"
+            echo ""
+            
+            # 统计端口跳跃规则数量
+            local redirect_count=$(echo "$all_redirect_rules" | wc -l)
+            echo -e "${GREEN}共发现 $redirect_count 条端口重定向规则${NC}"
+        else
+            echo "未找到任何端口重定向规则"
+        fi
+        
+        echo ""
+        echo -e "${CYAN}=== 当前监听端口配置状态 ===${NC}"
         
         if check_port_hopping_status; then
             echo -e "${YELLOW}端口跳跃状态:${NC} ${GREEN}已启用${NC}"
@@ -1717,17 +1852,35 @@ show_port_hopping_details() {
                 echo ""
             fi
             
-            # 显示当前iptables规则
-            echo -e "${YELLOW}当前 iptables 规则:${NC}"
-            local rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $current_port")
-            if [[ -n "$rules" ]]; then
-                echo "$rules"
+            # 显示当前监听端口相关的iptables规则
+            echo -e "${YELLOW}当前监听端口 ($current_port) 的相关规则:${NC}"
+            local current_port_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $current_port")
+            if [[ -n "$current_port_rules" ]]; then
+                echo "$current_port_rules"
             else
-                echo "未找到相关规则"
+                echo "未找到针对当前监听端口的规则"
             fi
         else
             echo -e "${YELLOW}端口跳跃状态:${NC} ${YELLOW}未启用${NC}"
+            
+            # 检查是否有其他端口的跳跃规则
+            local other_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT" | grep -v "to-ports $current_port")
+            if [[ -n "$other_rules" ]]; then
+                echo ""
+                echo -e "${YELLOW}发现其他端口的跳跃配置:${NC}"
+                echo "$other_rules"
+                echo ""
+                echo -e "${RED}警告: 发现非当前监听端口的端口跳跃规则，可能存在端口冲突${NC}"
+            fi
         fi
+        
+        echo ""
+        echo -e "${CYAN}=== 完整 iptables-save 输出 ===${NC}"
+        echo -e "${YELLOW}完整的 NAT 表规则 (类似 sudo iptables-save):${NC}"
+        iptables-save -t nat 2>/dev/null | grep -E "(PREROUTING|REDIRECT)" || echo "无法获取完整规则信息"
+        
+        echo ""
+        echo -e "${GREEN}提示: 可以使用 'sudo iptables-save' 命令查看完整的防火墙规则${NC}"
     fi
     
     wait_for_user

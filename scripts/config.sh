@@ -525,6 +525,99 @@ clear_port_hopping_rules() {
     fi
 }
 
+# 清除所有端口跳跃规则（系统级别）
+clear_all_port_hopping_rules() {
+    local cleared=false
+    
+    echo -e "${BLUE}正在清除所有端口跳跃规则...${NC}"
+    
+    # 获取所有REDIRECT规则
+    local all_redirect_rules=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^-A\ PREROUTING.*REDIRECT ]]; then
+            all_redirect_rules+=("${line/-A/-D}")
+        fi
+    done < <(iptables -t nat -S PREROUTING 2>/dev/null)
+    
+    # 删除所有REDIRECT规则
+    for rule in "${all_redirect_rules[@]}"; do
+        if iptables -t nat $rule 2>/dev/null; then
+            echo "已清除规则: $rule"
+            cleared=true
+        fi
+    done
+    
+    # 备选方法：按行号删除所有REDIRECT规则
+    local line_numbers=($(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT" | awk '{print $1}' | sort -rn))
+    for line_num in "${line_numbers[@]}"; do
+        if iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
+            echo "已清除第 $line_num 行REDIRECT规则"
+            cleared=true
+        fi
+    done
+    
+    # 删除所有相关的配置文件
+    if [[ -f "/etc/hysteria/port-hopping.conf" ]]; then
+        rm -f "/etc/hysteria/port-hopping.conf"
+        echo "已删除端口跳跃配置文件"
+    fi
+    
+    if $cleared; then
+        echo -e "${GREEN}所有端口跳跃规则清除成功${NC}"
+        local remaining_rules=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT" | wc -l)
+        if [[ $remaining_rules -eq 0 ]]; then
+            echo -e "${GREEN}确认：系统中没有剩余的端口重定向规则${NC}"
+        else
+            echo -e "${YELLOW}警告：系统中还有 $remaining_rules 条端口重定向规则${NC}"
+        fi
+    else
+        echo -e "${YELLOW}没有找到需要清除的端口跳跃规则${NC}"
+    fi
+}
+
+# 清除指定端口的跳跃规则
+clear_specific_port_rules() {
+    local target_port="$1"
+    local cleared=false
+    
+    if [[ -z "$target_port" ]]; then
+        echo -e "${RED}错误: 未指定目标端口${NC}"
+        return 1
+    fi
+    
+    echo -e "${BLUE}正在清除指向端口 $target_port 的跳跃规则...${NC}"
+    
+    # 清除指向特定端口的REDIRECT规则
+    local rules_to_delete=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^-A\ PREROUTING.*REDIRECT.*--to-ports\ $target_port ]]; then
+            rules_to_delete+=("${line/-A/-D}")
+        fi
+    done < <(iptables -t nat -S PREROUTING 2>/dev/null)
+    
+    for rule in "${rules_to_delete[@]}"; do
+        if iptables -t nat $rule 2>/dev/null; then
+            echo "已清除规则: $rule"
+            cleared=true
+        fi
+    done
+    
+    # 备选方法：按行号删除
+    local line_numbers=($(iptables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $target_port" | awk '{print $1}' | sort -rn))
+    for line_num in "${line_numbers[@]}"; do
+        if iptables -t nat -D PREROUTING "$line_num" 2>/dev/null; then
+            echo "已清除第 $line_num 行规则"
+            cleared=true
+        fi
+    done
+    
+    if $cleared; then
+        echo -e "${GREEN}指向端口 $target_port 的跳跃规则清除成功${NC}"
+    else
+        echo -e "${YELLOW}没有找到指向端口 $target_port 的跳跃规则${NC}"
+    fi
+}
+
 # 添加端口跳跃规则
 add_port_hopping_rules() {
     local interface=$(get_network_interface)
