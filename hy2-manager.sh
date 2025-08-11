@@ -1697,12 +1697,20 @@ disable_port_hopping() {
                     local line_number=$(echo "$rule_line" | awk '{print $1}')
                     local target_port=$(echo "$rule_line" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}')
                     
-                    # 提取源端口信息
+                    # 提取源端口信息，支持多种格式
                     local port_info=""
+                    # 匹配端口范围格式：dpts:20000:50000
                     if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
-                        port_info="端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                        port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                    # 匹配单端口格式：dpt:8080
                     elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
-                        port_info="单端口 ${BASH_REMATCH[1]}"
+                        port_info="源单端口 ${BASH_REMATCH[1]}"
+                    # 匹配--dport格式：--dport 20000:50000
+                    elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
+                        port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                    # 匹配单个--dport格式：--dport 8080
+                    elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
+                        port_info="源单端口 ${BASH_REMATCH[1]}"
                     else
                         port_info="未知端口配置"
                     fi
@@ -1783,14 +1791,22 @@ disable_port_hopping() {
                         echo "$current_rules" | grep -- "--to-ports $port" | while IFS= read -r rule_line; do
                             local line_number=$(echo "$rule_line" | awk '{print $1}')
                             local port_info=""
+                            # 匹配端口范围格式：dpts:20000:50000
                             if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
-                                port_info="端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                                port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                            # 匹配单端口格式：dpt:8080  
                             elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
-                                port_info="单端口 ${BASH_REMATCH[1]}"
+                                port_info="源单端口 ${BASH_REMATCH[1]}"
+                            # 匹配--dport格式：--dport 20000:50000
+                            elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
+                                port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                            # 匹配单个--dport格式：--dport 8080
+                            elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
+                                port_info="源单端口 ${BASH_REMATCH[1]}"
                             else
-                                port_info="未知配置"
+                                port_info="未知端口配置"
                             fi
-                            echo "   - 行号$line_number: $port_info"
+                            echo "   - 行号$line_number: $port_info → 目标端口$port"
                         done
                         echo ""
                         ((i++))
@@ -1938,6 +1954,38 @@ show_port_hopping_details() {
             # 统计端口跳跃规则数量
             local redirect_count=$(echo "$all_redirect_rules" | wc -l)
             echo -e "${GREEN}共发现 $redirect_count 条端口重定向规则${NC}"
+            
+            # 解析并显示详细的规则信息
+            echo ""
+            echo -e "${CYAN}详细规则解析:${NC}"
+            local rule_number=1
+            while IFS= read -r rule_line; do
+                if [[ -n "$rule_line" ]]; then
+                    local line_number=$(echo "$rule_line" | awk '{print $1}')
+                    local target_port=$(echo "$rule_line" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}')
+                    
+                    # 提取源端口信息，支持多种格式
+                    local port_info=""
+                    # 匹配端口范围格式：dpts:20000:50000
+                    if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                        port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                    # 匹配单端口格式：dpt:8080
+                    elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
+                        port_info="源单端口 ${BASH_REMATCH[1]}"
+                    # 匹配--dport格式：--dport 20000:50000
+                    elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
+                        port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                    # 匹配单个--dport格式：--dport 8080
+                    elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
+                        port_info="源单端口 ${BASH_REMATCH[1]}"
+                    else
+                        port_info="未知端口配置"
+                    fi
+                    
+                    echo "$rule_number. 行号$line_number: $port_info → 目标端口$target_port"
+                    ((rule_number++))
+                fi
+            done <<< "$all_redirect_rules"
         else
             echo "未找到任何端口重定向规则"
         fi
