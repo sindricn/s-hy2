@@ -1679,7 +1679,7 @@ disable_port_hopping() {
     if safe_source_script "$SCRIPTS_DIR/config.sh" "配置脚本"; then
         # 首先显示系统中所有的端口跳跃规则
         echo -e "${YELLOW}系统中的端口跳跃规则:${NC}"
-        local all_redirect_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+        local all_redirect_rules=$(iptables-save -t nat 2>/dev/null | grep "^-A PREROUTING.*REDIRECT")
         
         if [[ -n "$all_redirect_rules" ]]; then
             echo "$all_redirect_rules"
@@ -1694,28 +1694,21 @@ disable_port_hopping() {
             local rule_number=1
             while IFS= read -r rule_line; do
                 if [[ -n "$rule_line" ]]; then
-                    local line_number=$(echo "$rule_line" | awk '{print $1}')
                     local target_port=$(echo "$rule_line" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}')
                     
-                    # 提取源端口信息，支持多种格式
+                    # 提取源端口信息，基于iptables-save格式
                     local port_info=""
-                    # 匹配端口范围格式：dpts:20000:50000
-                    if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                    # 匹配--dport端口范围格式：--dport 20000:50000
+                    if [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
                         port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-                    # 匹配单端口格式：dpt:8080
-                    elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
-                        port_info="源单端口 ${BASH_REMATCH[1]}"
-                    # 匹配--dport格式：--dport 20000:50000
-                    elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
-                        port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-                    # 匹配单个--dport格式：--dport 8080
+                    # 匹配--dport单端口格式：--dport 8080
                     elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
                         port_info="源单端口 ${BASH_REMATCH[1]}"
                     else
                         port_info="未知端口配置"
                     fi
                     
-                    echo "$rule_number. 行号$line_number: $port_info → 目标端口$target_port"
+                    echo "$rule_number. $port_info → 目标端口$target_port"
                     ((rule_number++))
                 fi
             done <<< "$all_redirect_rules"
@@ -1767,7 +1760,7 @@ disable_port_hopping() {
                 echo -e "${BLUE}禁用指定端口的端口跳跃${NC}"
                 
                 # 重新获取所有规则，确保数据是最新的
-                local current_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+                local current_rules=$(iptables-save -t nat 2>/dev/null | grep "^-A PREROUTING.*REDIRECT")
                 if [[ -z "$current_rules" ]]; then
                     echo -e "${YELLOW}系统中没有端口跳跃规则${NC}"
                     break
@@ -1789,24 +1782,18 @@ disable_port_hopping() {
                         
                         # 显示此端口的详细规则信息
                         echo "$current_rules" | grep -- "--to-ports $port" | while IFS= read -r rule_line; do
-                            local line_number=$(echo "$rule_line" | awk '{print $1}')
                             local port_info=""
-                            # 匹配端口范围格式：dpts:20000:50000
-                            if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                            # 基于iptables-save格式解析
+                            # 匹配--dport端口范围格式：--dport 20000:50000
+                            if [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
                                 port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-                            # 匹配单端口格式：dpt:8080  
-                            elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
-                                port_info="源单端口 ${BASH_REMATCH[1]}"
-                            # 匹配--dport格式：--dport 20000:50000
-                            elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
-                                port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-                            # 匹配单个--dport格式：--dport 8080
+                            # 匹配--dport单端口格式：--dport 8080
                             elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
                                 port_info="源单端口 ${BASH_REMATCH[1]}"
                             else
                                 port_info="未知端口配置"
                             fi
-                            echo "   - 行号$line_number: $port_info → 目标端口$port"
+                            echo "   - $port_info → 目标端口$port"
                         done
                         echo ""
                         ((i++))
@@ -1821,7 +1808,7 @@ disable_port_hopping() {
                     echo -e "${BLUE}取消操作${NC}"
                 elif [[ "$target_port" =~ ^[0-9]+$ ]] && [[ "$target_port" -ge 1 ]] && [[ "$target_port" -le 65535 ]]; then
                     # 重新获取最新规则并检查指定端口
-                    local specific_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $target_port")
+                    local specific_rules=$(iptables-save -t nat 2>/dev/null | grep "^-A PREROUTING.*REDIRECT.*--to-ports $target_port")
                     if [[ -n "$specific_rules" ]]; then
                         echo ""
                         echo -e "${YELLOW}将要删除目标端口 $target_port 的以下规则:${NC}"
@@ -1845,56 +1832,67 @@ disable_port_hopping() {
                 fi
                 ;;
             3)
-                # 按行号禁用特定规则
+                # 按规则选择禁用特定规则
                 echo ""
-                echo -e "${BLUE}按行号禁用特定规则${NC}"
+                echo -e "${BLUE}选择特定规则禁用${NC}"
                 
                 # 重新获取最新规则
-                local line_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
-                if [[ -z "$line_rules" ]]; then
+                local save_rules=$(iptables-save -t nat 2>/dev/null | grep "^-A PREROUTING.*REDIRECT")
+                if [[ -z "$save_rules" ]]; then
                     echo -e "${YELLOW}系统中没有端口跳跃规则${NC}"
                     break
                 fi
                 
                 echo -e "${YELLOW}当前所有规则:${NC}"
-                echo "$line_rules"
-                echo ""
-                
-                # 获取所有行号
-                local line_numbers=($(echo "$line_rules" | awk '{print $1}'))
-                echo -e "${YELLOW}可选择的行号: ${line_numbers[*]}${NC}"
-                echo ""
-                echo -n -e "${BLUE}请输入要删除的行号 (0=取消): ${NC}"
-                read -r line_number
-                
-                if [[ "$line_number" == "0" ]]; then
-                    echo -e "${BLUE}取消操作${NC}"
-                elif [[ "$line_number" =~ ^[0-9]+$ ]]; then
-                    # 检查行号是否存在
-                    local target_rule=$(echo "$line_rules" | grep "^[[:space:]]*$line_number[[:space:]]")
-                    if [[ -n "$target_rule" ]]; then
-                        echo ""
-                        echo -e "${YELLOW}将要删除的规则:${NC}"
-                        echo "$target_rule"
-                        echo ""
-                        echo -n -e "${YELLOW}确定要删除行号 $line_number 的规则吗? [y/N]: ${NC}"
-                        read -r confirm
-                        if [[ $confirm =~ ^[Yy]$ ]]; then
-                            if iptables -t nat -D PREROUTING "$line_number" 2>/dev/null; then
-                                log_success "行号 $line_number 的规则已删除"
-                            else
-                                log_error "删除行号 $line_number 的规则失败"
-                            fi
+                local rule_num=1
+                local -a rule_array
+                while IFS= read -r rule_line; do
+                    if [[ -n "$rule_line" ]]; then
+                        rule_array[$rule_num]="$rule_line"
+                        
+                        # 解析规则信息
+                        local target_port=$(echo "$rule_line" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}')
+                        local port_info=""
+                        if [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
+                            port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                        elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
+                            port_info="源单端口 ${BASH_REMATCH[1]}"
                         else
-                            echo -e "${BLUE}取消操作${NC}"
+                            port_info="未知端口配置"
+                        fi
+                        
+                        echo "$rule_num. $port_info → 目标端口$target_port"
+                        ((rule_num++))
+                    fi
+                done <<< "$save_rules"
+                
+                echo ""
+                echo -n -e "${BLUE}请输入要删除的规则编号 (0=取消): ${NC}"
+                read -r rule_choice
+                
+                if [[ "$rule_choice" == "0" ]]; then
+                    echo -e "${BLUE}取消操作${NC}"
+                elif [[ "$rule_choice" =~ ^[0-9]+$ ]] && [[ "$rule_choice" -ge 1 ]] && [[ "$rule_choice" -lt "$rule_num" ]]; then
+                    local selected_rule="${rule_array[$rule_choice]}"
+                    echo ""
+                    echo -e "${YELLOW}将要删除的规则:${NC}"
+                    echo "$selected_rule"
+                    echo ""
+                    echo -n -e "${YELLOW}确定要删除此规则吗? [y/N]: ${NC}"
+                    read -r confirm
+                    if [[ $confirm =~ ^[Yy]$ ]]; then
+                        # 将-A改为-D来删除规则
+                        local delete_rule="${selected_rule/-A/-D}"
+                        if iptables -t nat $delete_rule 2>/dev/null; then
+                            log_success "规则已删除"
+                        else
+                            log_error "删除规则失败"
                         fi
                     else
-                        echo -e "${YELLOW}行号 $line_number 不存在或不是端口跳跃规则${NC}"
+                        echo -e "${BLUE}取消操作${NC}"
                     fi
-                elif [[ -n "$line_number" ]]; then
-                    echo -e "${RED}无效的行号: $line_number${NC}"
                 else
-                    echo -e "${BLUE}未输入行号，取消操作${NC}"
+                    echo -e "${RED}无效的规则编号${NC}"
                 fi
                 ;;
             4)
@@ -1946,7 +1944,7 @@ show_port_hopping_details() {
         
         # 显示所有 REDIRECT 到端口的 iptables 规则
         echo -e "${YELLOW}所有 iptables REDIRECT 规则:${NC}"
-        local all_redirect_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+        local all_redirect_rules=$(iptables-save -t nat 2>/dev/null | grep "^-A PREROUTING.*REDIRECT")
         if [[ -n "$all_redirect_rules" ]]; then
             echo "$all_redirect_rules"
             echo ""
@@ -1961,28 +1959,21 @@ show_port_hopping_details() {
             local rule_number=1
             while IFS= read -r rule_line; do
                 if [[ -n "$rule_line" ]]; then
-                    local line_number=$(echo "$rule_line" | awk '{print $1}')
                     local target_port=$(echo "$rule_line" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}')
                     
-                    # 提取源端口信息，支持多种格式
+                    # 提取源端口信息，基于iptables-save格式
                     local port_info=""
-                    # 匹配端口范围格式：dpts:20000:50000
-                    if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                    # 匹配--dport端口范围格式：--dport 20000:50000
+                    if [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
                         port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-                    # 匹配单端口格式：dpt:8080
-                    elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
-                        port_info="源单端口 ${BASH_REMATCH[1]}"
-                    # 匹配--dport格式：--dport 20000:50000
-                    elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+):([0-9]+) ]]; then
-                        port_info="源端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-                    # 匹配单个--dport格式：--dport 8080
+                    # 匹配--dport单端口格式：--dport 8080
                     elif [[ "$rule_line" =~ --dport[[:space:]]+([0-9]+) ]]; then
                         port_info="源单端口 ${BASH_REMATCH[1]}"
                     else
                         port_info="未知端口配置"
                     fi
                     
-                    echo "$rule_number. 行号$line_number: $port_info → 目标端口$target_port"
+                    echo "$rule_number. $port_info → 目标端口$target_port"
                     ((rule_number++))
                 fi
             done <<< "$all_redirect_rules"
