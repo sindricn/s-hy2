@@ -1733,28 +1733,31 @@ disable_port_hopping() {
                 echo ""
                 echo -e "${BLUE}禁用指定端口的端口跳跃${NC}"
                 
-                # 显示所有目标端口
+                # 显示所有目标端口，使用更精确的正则表达式
                 echo -e "${YELLOW}系统中的目标端口:${NC}"
-                local target_ports=($(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT" | grep -o "to-ports [0-9]*" | awk '{print $2}' | sort -u))
+                local target_ports=($(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}' | sort -u))
                 
                 if [[ ${#target_ports[@]} -eq 0 ]]; then
                     echo "未找到任何目标端口"
-                    wait_for_user
-                    return
+                    echo ""
+                    echo -e "${YELLOW}您可以直接输入要检查的端口号，或输入 0 取消操作${NC}"
+                else
+                    local i=1
+                    for port in "${target_ports[@]}"; do
+                        local port_rules_count=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports $port" | wc -l)
+                        echo "$i. 端口 $port ($port_rules_count 条规则)"
+                        ((i++))
+                    done
                 fi
                 
-                local i=1
-                for port in "${target_ports[@]}"; do
-                    local port_rules_count=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports $port" | wc -l)
-                    echo "$i. 端口 $port ($port_rules_count 条规则)"
-                    ((i++))
-                done
-                
                 echo ""
-                echo -n -e "${BLUE}请输入要禁用的端口号: ${NC}"
+                echo -n -e "${BLUE}请输入要禁用的端口号 (0=取消): ${NC}"
                 read -r target_port
                 
-                if [[ "$target_port" =~ ^[0-9]+$ ]] && [[ "$target_port" -ge 1 ]] && [[ "$target_port" -le 65535 ]]; then
+                # 检查是否取消操作
+                if [[ "$target_port" == "0" ]]; then
+                    echo -e "${BLUE}取消操作${NC}"
+                elif [[ "$target_port" =~ ^[0-9]+$ ]] && [[ "$target_port" -ge 1 ]] && [[ "$target_port" -le 65535 ]]; then
                     local specific_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $target_port")
                     if [[ -n "$specific_rules" ]]; then
                         echo ""
@@ -1772,8 +1775,10 @@ disable_port_hopping() {
                     else
                         echo -e "${YELLOW}端口 $target_port 没有端口跳跃配置${NC}"
                     fi
+                elif [[ -n "$target_port" ]]; then
+                    echo -e "${RED}无效的端口号: $target_port${NC}"
                 else
-                    echo -e "${RED}无效的端口号${NC}"
+                    echo -e "${BLUE}未输入端口号，取消操作${NC}"
                 fi
                 ;;
             3)
