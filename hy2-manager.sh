@@ -1687,6 +1687,30 @@ disable_port_hopping() {
             
             local redirect_count=$(echo "$all_redirect_rules" | wc -l)
             echo -e "${GREEN}发现 $redirect_count 条端口重定向规则${NC}"
+            
+            # 解析所有规则的详细信息
+            echo ""
+            echo -e "${CYAN}规则详细信息:${NC}"
+            local rule_number=1
+            while IFS= read -r rule_line; do
+                if [[ -n "$rule_line" ]]; then
+                    local line_number=$(echo "$rule_line" | awk '{print $1}')
+                    local target_port=$(echo "$rule_line" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}')
+                    
+                    # 提取源端口信息
+                    local port_info=""
+                    if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                        port_info="端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                    elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
+                        port_info="单端口 ${BASH_REMATCH[1]}"
+                    else
+                        port_info="未知端口配置"
+                    fi
+                    
+                    echo "$rule_number. 行号$line_number: $port_info → 目标端口$target_port"
+                    ((rule_number++))
+                fi
+            done <<< "$all_redirect_rules"
         else
             echo "未找到任何端口重定向规则"
             echo -e "${YELLOW}系统中没有端口跳跃配置${NC}"
@@ -1697,11 +1721,12 @@ disable_port_hopping() {
         echo ""
         echo -e "${YELLOW}禁用选项:${NC}"
         echo -e "${GREEN}1.${NC} 禁用当前监听端口的端口跳跃"
-        echo -e "${GREEN}2.${NC} 禁用指定端口的端口跳跃"  
-        echo -e "${GREEN}3.${NC} 禁用所有端口跳跃规则"
+        echo -e "${GREEN}2.${NC} 禁用指定目标端口的端口跳跃"  
+        echo -e "${GREEN}3.${NC} 按行号禁用特定规则"
+        echo -e "${GREEN}4.${NC} 禁用所有端口跳跃规则"
         echo -e "${RED}0.${NC} 取消操作"
         echo ""
-        echo -n -e "${BLUE}请选择操作 [0-3]: ${NC}"
+        echo -n -e "${BLUE}请选择操作 [0-4]: ${NC}"
         read -r choice
         
         case $choice in
@@ -1733,9 +1758,16 @@ disable_port_hopping() {
                 echo ""
                 echo -e "${BLUE}禁用指定端口的端口跳跃${NC}"
                 
-                # 显示所有目标端口，使用更精确的正则表达式
-                echo -e "${YELLOW}系统中的目标端口:${NC}"
-                local target_ports=($(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}' | sort -u))
+                # 重新获取所有规则，确保数据是最新的
+                local current_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+                if [[ -z "$current_rules" ]]; then
+                    echo -e "${YELLOW}系统中没有端口跳跃规则${NC}"
+                    break
+                fi
+                
+                # 显示所有目标端口及其规则信息
+                echo -e "${YELLOW}可禁用的目标端口:${NC}"
+                local target_ports=($(echo "$current_rules" | grep -o -- '--to-ports [0-9]\+' | awk '{print $2}' | sort -u))
                 
                 if [[ ${#target_ports[@]} -eq 0 ]]; then
                     echo "未找到任何目标端口"
@@ -1744,36 +1776,51 @@ disable_port_hopping() {
                 else
                     local i=1
                     for port in "${target_ports[@]}"; do
-                        local port_rules_count=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep "REDIRECT.*--to-ports $port" | wc -l)
+                        local port_rules_count=$(echo "$current_rules" | grep -- "--to-ports $port" | wc -l)
                         echo "$i. 端口 $port ($port_rules_count 条规则)"
+                        
+                        # 显示此端口的详细规则信息
+                        echo "$current_rules" | grep -- "--to-ports $port" | while IFS= read -r rule_line; do
+                            local line_number=$(echo "$rule_line" | awk '{print $1}')
+                            local port_info=""
+                            if [[ "$rule_line" =~ dpts:([0-9]+):([0-9]+) ]]; then
+                                port_info="端口范围 ${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+                            elif [[ "$rule_line" =~ dpt:([0-9]+) ]]; then
+                                port_info="单端口 ${BASH_REMATCH[1]}"
+                            else
+                                port_info="未知配置"
+                            fi
+                            echo "   - 行号$line_number: $port_info"
+                        done
+                        echo ""
                         ((i++))
                     done
                 fi
                 
-                echo ""
-                echo -n -e "${BLUE}请输入要禁用的端口号 (0=取消): ${NC}"
+                echo -n -e "${BLUE}请输入要禁用的目标端口号 (0=取消): ${NC}"
                 read -r target_port
                 
                 # 检查是否取消操作
                 if [[ "$target_port" == "0" ]]; then
                     echo -e "${BLUE}取消操作${NC}"
                 elif [[ "$target_port" =~ ^[0-9]+$ ]] && [[ "$target_port" -ge 1 ]] && [[ "$target_port" -le 65535 ]]; then
+                    # 重新获取最新规则并检查指定端口
                     local specific_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT.*--to-ports $target_port")
                     if [[ -n "$specific_rules" ]]; then
                         echo ""
-                        echo -e "${YELLOW}将要删除端口 $target_port 的规则:${NC}"
+                        echo -e "${YELLOW}将要删除目标端口 $target_port 的以下规则:${NC}"
                         echo "$specific_rules"
                         echo ""
-                        echo -n -e "${YELLOW}确定要禁用端口 $target_port 的端口跳跃吗? [y/N]: ${NC}"
+                        echo -n -e "${YELLOW}确定要禁用目标端口 $target_port 的所有端口跳跃规则吗? [y/N]: ${NC}"
                         read -r confirm
                         if [[ $confirm =~ ^[Yy]$ ]]; then
                             clear_specific_port_rules "$target_port"
-                            log_success "端口 $target_port 的端口跳跃已禁用"
+                            log_success "目标端口 $target_port 的端口跳跃已禁用"
                         else
                             echo -e "${BLUE}取消操作${NC}"
                         fi
                     else
-                        echo -e "${YELLOW}端口 $target_port 没有端口跳跃配置${NC}"
+                        echo -e "${YELLOW}目标端口 $target_port 没有端口跳跃配置${NC}"
                     fi
                 elif [[ -n "$target_port" ]]; then
                     echo -e "${RED}无效的端口号: $target_port${NC}"
@@ -1782,6 +1829,59 @@ disable_port_hopping() {
                 fi
                 ;;
             3)
+                # 按行号禁用特定规则
+                echo ""
+                echo -e "${BLUE}按行号禁用特定规则${NC}"
+                
+                # 重新获取最新规则
+                local line_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "REDIRECT")
+                if [[ -z "$line_rules" ]]; then
+                    echo -e "${YELLOW}系统中没有端口跳跃规则${NC}"
+                    break
+                fi
+                
+                echo -e "${YELLOW}当前所有规则:${NC}"
+                echo "$line_rules"
+                echo ""
+                
+                # 获取所有行号
+                local line_numbers=($(echo "$line_rules" | awk '{print $1}'))
+                echo -e "${YELLOW}可选择的行号: ${line_numbers[*]}${NC}"
+                echo ""
+                echo -n -e "${BLUE}请输入要删除的行号 (0=取消): ${NC}"
+                read -r line_number
+                
+                if [[ "$line_number" == "0" ]]; then
+                    echo -e "${BLUE}取消操作${NC}"
+                elif [[ "$line_number" =~ ^[0-9]+$ ]]; then
+                    # 检查行号是否存在
+                    local target_rule=$(echo "$line_rules" | grep "^[[:space:]]*$line_number[[:space:]]")
+                    if [[ -n "$target_rule" ]]; then
+                        echo ""
+                        echo -e "${YELLOW}将要删除的规则:${NC}"
+                        echo "$target_rule"
+                        echo ""
+                        echo -n -e "${YELLOW}确定要删除行号 $line_number 的规则吗? [y/N]: ${NC}"
+                        read -r confirm
+                        if [[ $confirm =~ ^[Yy]$ ]]; then
+                            if iptables -t nat -D PREROUTING "$line_number" 2>/dev/null; then
+                                log_success "行号 $line_number 的规则已删除"
+                            else
+                                log_error "删除行号 $line_number 的规则失败"
+                            fi
+                        else
+                            echo -e "${BLUE}取消操作${NC}"
+                        fi
+                    else
+                        echo -e "${YELLOW}行号 $line_number 不存在或不是端口跳跃规则${NC}"
+                    fi
+                elif [[ -n "$line_number" ]]; then
+                    echo -e "${RED}无效的行号: $line_number${NC}"
+                else
+                    echo -e "${BLUE}未输入行号，取消操作${NC}"
+                fi
+                ;;
+            4)
                 # 禁用所有端口跳跃规则
                 echo ""
                 echo -e "${BLUE}禁用所有端口跳跃规则${NC}"
