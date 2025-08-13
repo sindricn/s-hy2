@@ -496,17 +496,77 @@ EOF
       - h3
 
 proxy-groups:
-  - name: "Hysteria2-Auto"
+  - name: "🚀 节点选择"
+    type: select
+    proxies:
+      - "🔄 自动选择"
+      - "Hysteria2-Server"
+      - "🎯 全球直连"
+  
+  - name: "🔄 自动选择"
     type: url-test
     proxies:
       - "Hysteria2-Server"
     url: 'http://www.gstatic.com/generate_204'
     interval: 300
+    tolerance: 50
+  
+  - name: "🌍 国外媒体"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "🔄 自动选择"
+      - "Hysteria2-Server"
+      - "🎯 全球直连"
+  
+  - name: "🎯 全球直连"
+    type: select
+    proxies:
+      - "DIRECT"
+  
+  - name: "🛑 全球拦截"
+    type: select
+    proxies:
+      - "REJECT"
+      - "🎯 全球直连"
 
-# 最小化规则配置：仅包含必需的MATCH规则，不干扰客户端本地分流规则
-# 本地分流规则会优先于此规则执行（通过客户端的prepend-rules功能）
+# 基础分流规则：国内直连，国外走代理
 rules:
-  - MATCH,Hysteria2-Auto
+  # 局域网直连
+  - DOMAIN-SUFFIX,local,🎯 全球直连
+  - IP-CIDR,192.168.0.0/16,🎯 全球直连,no-resolve
+  - IP-CIDR,10.0.0.0/8,🎯 全球直连,no-resolve
+  - IP-CIDR,172.16.0.0/12,🎯 全球直连,no-resolve
+  - IP-CIDR,127.0.0.0/8,🎯 全球直连,no-resolve
+  - IP-CIDR,100.64.0.0/10,🎯 全球直连,no-resolve
+  - IP-CIDR6,::1/128,🎯 全球直连,no-resolve
+  - IP-CIDR6,fc00::/7,🎯 全球直连,no-resolve
+  - IP-CIDR6,fe80::/10,🎯 全球直连,no-resolve
+  
+  # 常用国外媒体服务
+  - DOMAIN-KEYWORD,youtube,🌍 国外媒体
+  - DOMAIN-KEYWORD,google,🌍 国外媒体
+  - DOMAIN-KEYWORD,twitter,🌍 国外媒体
+  - DOMAIN-KEYWORD,facebook,🌍 国外媒体
+  - DOMAIN-KEYWORD,instagram,🌍 国外媒体
+  - DOMAIN-KEYWORD,telegram,🌍 国外媒体
+  - DOMAIN-KEYWORD,netflix,🌍 国外媒体
+  - DOMAIN-KEYWORD,github,🌍 国外媒体
+  - DOMAIN-SUFFIX,openai.com,🌍 国外媒体
+  - DOMAIN-SUFFIX,chatgpt.com,🌍 国外媒体
+  
+  # 广告拦截
+  - DOMAIN-KEYWORD,ad,🛑 全球拦截
+  - DOMAIN-KEYWORD,ads,🛑 全球拦截
+  - DOMAIN-KEYWORD,analytics,🛑 全球拦截
+  - DOMAIN-KEYWORD,track,🛑 全球拦截
+  
+  # 国内域名和IP直连
+  - GEOIP,CN,🎯 全球直连
+  - GEOSITE,CN,🎯 全球直连
+  
+  # 其他流量走代理
+  - MATCH,🚀 节点选择
 EOF
     
     # 4. SingBox订阅格式
