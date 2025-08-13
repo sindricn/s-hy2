@@ -503,7 +503,10 @@ proxy-groups:
     url: 'http://www.gstatic.com/generate_204'
     interval: 300
 
-# 注意：此订阅文件不包含分流规则，请在客户端中配置分流规则
+# 最小化规则配置：仅包含必需的MATCH规则，不干扰客户端本地分流规则
+# 本地分流规则会优先于此规则执行（通过客户端的prepend-rules功能）
+rules:
+  - MATCH,Hysteria2-Auto
 EOF
     
     # 4. SingBox订阅格式
