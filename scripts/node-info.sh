@@ -139,6 +139,7 @@ generate_clash_config() {
     local obfs_password="$4"
     local sni_domain="$5"
     local insecure="$6"
+    local port_hopping="$7"
 
     cat << EOF
 # Clash 配置片段 (Hysteria2)
@@ -149,6 +150,13 @@ proxies:
     port: $port
     password: $auth_password
 EOF
+    
+    # 添加端口跳跃配置
+    if [[ -n "$port_hopping" && "$port_hopping" != "未配置" ]]; then
+        cat << EOF
+    ports: $port_hopping
+EOF
+    fi
     
     if [[ -n "$obfs_password" ]]; then
         cat << EOF
@@ -430,8 +438,20 @@ generate_subscription_files() {
     # 1. Hysteria2 原生订阅格式
     echo "$node_link" > "$hysteria2_sub"
     
-    # 2. Base64编码订阅 (通用格式)
-    echo "$node_link" | base64 -w 0 > "$base64_sub"
+    # 2. Base64编码订阅 (通用格式，兼容v2rayNG等客户端)
+    cat > "$base64_sub.tmp" << EOF
+# Hysteria2 Subscription
+# Generated: $(date)
+# Server: $server_address:$port
+
+$node_link
+EOF
+    # 生成标准base64订阅格式（多行内容编码）
+    base64 -w 0 "$base64_sub.tmp" > "$base64_sub"
+    rm -f "$base64_sub.tmp"
+    
+    # 获取端口跳跃信息
+    local port_hopping=$(get_port_hopping_info)
     
     # 3. Clash订阅格式
     cat > "$clash_sub" << EOF
@@ -444,6 +464,13 @@ proxies:
     port: $port
     password: $auth_password
 EOF
+    
+    # 添加端口跳跃配置
+    if [[ -n "$port_hopping" && "$port_hopping" != "未配置" ]]; then
+        cat >> "$clash_sub" << EOF
+    ports: $port_hopping
+EOF
+    fi
     
     if [[ -n "$obfs_password" ]]; then
         cat >> "$clash_sub" << EOF
@@ -469,15 +496,14 @@ EOF
       - h3
 
 proxy-groups:
-  - name: "Auto"
+  - name: "Hysteria2-Auto"
     type: url-test
     proxies:
       - "Hysteria2-Server"
     url: 'http://www.gstatic.com/generate_204'
     interval: 300
 
-rules:
-  - MATCH,Auto
+# 注意：此订阅文件不包含分流规则，请在客户端中配置分流规则
 EOF
     
     # 4. SingBox订阅格式
@@ -717,7 +743,8 @@ show_client_configs() {
                 clear
                 echo -e "${CYAN}=== Clash 配置 ===${NC}"
                 echo ""
-                generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                local port_hopping=$(get_port_hopping_info)
+                generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping"
                 echo ""
                 echo -e "${BLUE}使用方法:${NC}"
                 echo "• 将上方配置添加到 Clash 配置文件的 proxies 部分"
@@ -772,7 +799,7 @@ save_all_configs_to_file() {
 $(generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
 
 === Clash 配置 ===
-$(generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+$(local port_hopping=$(get_port_hopping_info); generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping")
 
 === SingBox 配置 ===
 $(generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
@@ -890,7 +917,7 @@ $(echo "$node_link" | base64 -w 0)
 $(generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
 
 === Clash 配置 ===
-$(generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
+$(local port_hopping=$(get_port_hopping_info); generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping")
 
 === SingBox 配置 ===
 $(generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
