@@ -153,9 +153,13 @@ EOF
     
     # 添加端口跳跃配置
     if [[ -n "$port_hopping" && "$port_hopping" != "未配置" ]]; then
-        cat << EOF
-    ports: $port_hopping
+        # 提取纯净的端口范围格式（如果包含描述则提取端口范围部分）
+        local port_range=$(echo "$port_hopping" | grep -oE '[0-9]+-[0-9]+' | head -1)
+        if [[ -n "$port_range" ]]; then
+            cat << EOF
+    ports: $port_range
 EOF
+        fi
     fi
     
     if [[ -n "$obfs_password" ]]; then
@@ -439,16 +443,8 @@ generate_subscription_files() {
     echo "$node_link" > "$hysteria2_sub"
     
     # 2. Base64编码订阅 (通用格式，兼容v2rayNG等客户端)
-    cat > "$base64_sub.tmp" << EOF
-# Hysteria2 Subscription
-# Generated: $(date)
-# Server: $server_address:$port
-
-$node_link
-EOF
-    # 生成标准base64订阅格式（多行内容编码）
-    base64 -w 0 "$base64_sub.tmp" > "$base64_sub"
-    rm -f "$base64_sub.tmp"
+    # 直接对节点链接进行base64编码，不添加注释避免解析问题
+    echo "$node_link" | base64 -w 0 > "$base64_sub"
     
     # 获取端口跳跃信息
     local port_hopping=$(get_port_hopping_info)
@@ -465,11 +461,15 @@ proxies:
     password: $auth_password
 EOF
     
-    # 添加端口跳跃配置
+    # 添加端口跳跃配置 
     if [[ -n "$port_hopping" && "$port_hopping" != "未配置" ]]; then
-        cat >> "$clash_sub" << EOF
-    ports: $port_hopping
+        # 提取纯净的端口范围格式（如：20000-50000）
+        local port_range=$(echo "$port_hopping" | grep -oE '[0-9]+-[0-9]+' | head -1)
+        if [[ -n "$port_range" ]]; then
+            cat >> "$clash_sub" << EOF
+    ports: $port_range
 EOF
+        fi
     fi
     
     if [[ -n "$obfs_password" ]]; then
