@@ -206,12 +206,6 @@ generate_singbox_config() {
   "password": "$auth_password",
 EOF
     
-    # SingBox 的 up_mbps 和 down_mbps 是可选的，但推荐设置
-    cat << EOF
-  "up_mbps": 100,
-  "down_mbps": 100,
-EOF
-    
     if [[ -n "$obfs_password" ]]; then
         cat << EOF
   "obfs": {
@@ -223,6 +217,7 @@ EOF
     
     cat << EOF
   "tls": {
+    "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -234,6 +229,10 @@ EOF
     if [[ "$insecure" == "true" ]]; then
         cat << EOF
     "insecure": true,
+EOF
+    else
+        cat << EOF
+    "insecure": false,
 EOF
     fi
     
@@ -618,8 +617,6 @@ EOF
       "server": "$server_address",
       "server_port": $port,
       "password": "$auth_password",
-      "up_mbps": 100,
-      "down_mbps": 100,
 EOF
     
     if [[ -n "$obfs_password" ]]; then
@@ -633,6 +630,7 @@ EOF
     
     cat >> "$singbox_sub" << EOF
       "tls": {
+        "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -644,6 +642,10 @@ EOF
     if [[ "$insecure" == "true" ]]; then
         cat >> "$singbox_sub" << EOF
         "insecure": true,
+EOF
+    else
+        cat >> "$singbox_sub" << EOF
+        "insecure": false,
 EOF
     fi
     
