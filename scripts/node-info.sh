@@ -217,6 +217,7 @@ EOF
     
     cat << EOF
   "tls": {
+    "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -273,7 +274,7 @@ generate_singbox_pc_config() {
     ],
     "rules": [
       {
-        "geosite": "cn",
+        "rule_set": "geosite-cn",
         "server": "local"
       }
     ]
@@ -307,6 +308,7 @@ EOF
     
     cat << EOF
       "tls": {
+    "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -341,22 +343,30 @@ EOF
   "route": {
     "rules": [
       {
-        "geoip": "cn",
+        "rule_set": "geoip-cn",
         "outbound": "direct"
       },
       {
-        "geosite": "cn",
+        "rule_set": "geosite-cn",
         "outbound": "direct"
       }
     ],
-    "geoip": {
-      "download_url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
-      "download_detour": "Hysteria2-Server"
-    },
-    "geosite": {
-      "download_url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
-      "download_detour": "Hysteria2-Server"
-    },
+    "rule_set": [
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+        "download_detour": "Hysteria2-Server"
+      },
+      {
+        "tag": "geosite-cn", 
+        "type": "remote",
+        "format": "binary",
+        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+        "download_detour": "Hysteria2-Server"
+      }
+    ],
     "final": "Hysteria2-Server",
     "auto_detect_interface": true
   }
@@ -718,7 +728,7 @@ EOF
     ],
     "rules": [
       {
-        "geosite": "cn",
+        "rule_set": "geosite-cn",
         "server": "local"
       }
     ]
@@ -743,6 +753,7 @@ EOF
     
     cat >> "$singbox_sub" << EOF
       "tls": {
+    "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -777,22 +788,30 @@ EOF
   "route": {
     "rules": [
       {
-        "geoip": "cn",
+        "rule_set": "geoip-cn",
         "outbound": "direct"
       },
       {
-        "geosite": "cn", 
+        "rule_set": "geosite-cn", 
         "outbound": "direct"
       }
     ],
-    "geoip": {
-      "download_url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
-      "download_detour": "Hysteria2-Server"
-    },
-    "geosite": {
-      "download_url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
-      "download_detour": "Hysteria2-Server"
-    },
+    "rule_set": [
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+        "download_detour": "Hysteria2-Server"
+      },
+      {
+        "tag": "geosite-cn", 
+        "type": "remote",
+        "format": "binary",
+        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+        "download_detour": "Hysteria2-Server"
+      }
+    ],
     "final": "Hysteria2-Server",
     "auto_detect_interface": true
   }
@@ -821,7 +840,7 @@ EOF
     ],
     "rules": [
       {
-        "geosite": "cn",
+        "rule_set": "geosite-cn",
         "server": "local"
       }
     ]
@@ -855,6 +874,7 @@ EOF
     
     cat >> "$singbox_pc_sub" << EOF
       "tls": {
+    "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -889,22 +909,30 @@ EOF
   "route": {
     "rules": [
       {
-        "geoip": "cn",
+        "rule_set": "geoip-cn",
         "outbound": "direct"
       },
       {
-        "geosite": "cn", 
+        "rule_set": "geosite-cn", 
         "outbound": "direct"
       }
     ],
-    "geoip": {
-      "download_url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
-      "download_detour": "Hysteria2-Server"
-    },
-    "geosite": {
-      "download_url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
-      "download_detour": "Hysteria2-Server"
-    },
+    "rule_set": [
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+        "download_detour": "Hysteria2-Server"
+      },
+      {
+        "tag": "geosite-cn", 
+        "type": "remote",
+        "format": "binary",
+        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+        "download_detour": "Hysteria2-Server"
+      }
+    ],
     "final": "Hysteria2-Server",
     "auto_detect_interface": true
   }
