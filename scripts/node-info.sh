@@ -804,12 +804,20 @@ EOF
   "route": {
     "rules": [
       {
-        "domain_suffix": [".google.com", ".youtube.com", ".twitter.com", ".facebook.com", ".github.com"],
-        "outbound": "Hysteria2-Server"
+        "ip_cidr": [
+          "127.0.0.0/8",
+          "192.168.0.0/16",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "169.254.0.0/16",
+          "224.0.0.0/4",
+          "240.0.0.0/4"
+        ],
+        "outbound": "direct"
       },
       {
-        "domain_keyword": ["google", "youtube", "twitter", "facebook", "github"],
-        "outbound": "Hysteria2-Server"
+        "domain_suffix": [".local"],
+        "outbound": "direct"
       },
       {
         "rule_set": "geoip-cn",
@@ -929,12 +937,20 @@ EOF
   "route": {
     "rules": [
       {
-        "domain_suffix": [".google.com", ".youtube.com", ".twitter.com", ".facebook.com", ".github.com"],
-        "outbound": "Hysteria2-Server"
+        "ip_cidr": [
+          "127.0.0.0/8",
+          "192.168.0.0/16",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "169.254.0.0/16",
+          "224.0.0.0/4",
+          "240.0.0.0/4"
+        ],
+        "outbound": "direct"
       },
       {
-        "domain_keyword": ["google", "youtube", "twitter", "facebook", "github"],
-        "outbound": "Hysteria2-Server"
+        "domain_suffix": [".local"],
+        "outbound": "direct"
       },
       {
         "rule_set": "geoip-cn",
