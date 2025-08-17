@@ -336,8 +336,22 @@ EOF
       "tag": "direct"
     }
   ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "cache_id": "default"
+    }
+  },
   "route": {
     "rules": [
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "action": "sniff"
+      },
       {
         "ip_cidr": [
           "127.0.0.0/8",
@@ -729,7 +743,7 @@ EOF
       "address": ["172.19.0.1/30"],
       "mtu": 9000,
       "auto_route": true,
-      "strict_route": false,
+      "strict_route": true,
       "sniff": true,
       "endpoint_independent_nat": false,
       "stack": "system",
@@ -790,8 +804,22 @@ EOF
       "tag": "direct"
     }
   ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "cache_id": "default"
+    }
+  },
   "route": {
     "rules": [
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "action": "sniff"
+      },
       {
         "ip_cidr": [
           "127.0.0.0/8",
@@ -900,8 +928,22 @@ EOF
       "tag": "direct"
     }
   ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "cache_id": "default"
+    }
+  },
   "route": {
     "rules": [
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "action": "sniff"
+      },
       {
         "ip_cidr": [
           "127.0.0.0/8",
