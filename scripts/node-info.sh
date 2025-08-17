@@ -711,77 +711,81 @@ EOF
     # 4. SingBox订阅格式（移动端兼容）
     cat > "$singbox_sub" << EOF
 {
-  "log": {
-    "disabled": false,
-    "level": "info",
-    "timestamp": true
-  },
   "dns": {
-    "servers": [
-      {
-        "tag": "dns_proxy",
-        "address": "https://1.1.1.1/dns-query",
-        "address_resolver": "dns_resolver",
-        "strategy": "ipv4_only",
-        "detour": "Hysteria2-Server"
-      },
-      {
-        "tag": "dns_direct",
-        "address": "https://223.5.5.5/dns-query",
-        "address_resolver": "dns_resolver",
-        "strategy": "ipv4_only",
-        "detour": "direct"
-      },
-      {
-        "tag": "dns_resolver",
-        "address": "223.5.5.5",
-        "detour": "direct"
-      },
-      {
-        "tag": "dns_block",
-        "address": "rcode://success"
-      }
-    ],
     "rules": [
       {
-        "rule_set": "geosite-category-ads-all",
-        "server": "dns_block"
+        "outbound": ["any"],
+        "server": "local"
       },
       {
-        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
-        "server": "dns_direct"
+        "clash_mode": "global",
+        "server": "remote"
       },
       {
-        "rule_set": "geosite-geolocation-!cn",
-        "server": "dns_proxy"
+        "clash_mode": "direct",
+        "server": "local"
+      },
+      {
+        "rule_set": ["geosite-cn"],
+        "server": "local"
       }
     ],
-    "final": "dns_proxy",
-    "independent_cache": true,
-    "strategy": "ipv4_only"
+    "servers": [
+      {
+        "address": "https://1.1.1.1/dns-query",
+        "detour": "Hysteria2-Server",
+        "tag": "remote"
+      },
+      {
+        "address": "https://223.5.5.5/dns-query",
+        "detour": "direct",
+        "tag": "local"
+      },
+      {
+        "address": "rcode://success",
+        "tag": "block"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "cache_id": "cache_db",
+      "store_fakeip": true
+    }
   },
   "inbounds": [
     {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "utun",
-      "address": ["172.19.0.1/30"],
-      "mtu": 9000,
       "auto_route": true,
-      "strict_route": true,
+      "domain_strategy": "prefer_ipv4",
+      "endpoint_independent_nat": true,
+      "inet4_address": "172.19.0.1/30",
+      "inet6_address": "2001:0470:f9da:fdfa::1/64",
+      "mtu": 9000,
       "sniff": true,
-      "endpoint_independent_nat": false,
+      "sniff_override_destination": true,
       "stack": "system",
-      "platform": {
-        "http_proxy": {
-          "enabled": true,
-          "server": "127.0.0.1",
-          "server_port": 2080
-        }
-      }
+      "strict_route": true,
+      "type": "tun"
     }
   ],
   "outbounds": [
+    {
+      "tag": "節點選擇",
+      "type": "selector",
+      "outbounds": ["自動選擇", "Hysteria2-Server"],
+      "default": "自動選擇"
+    },
+    {
+      "tag": "自動選擇",
+      "type": "urltest",
+      "outbounds": ["Hysteria2-Server"],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
     {
       "type": "hysteria2",
       "tag": "Hysteria2-Server",
@@ -831,90 +835,49 @@ EOF
     {
       "type": "block",
       "tag": "block"
+    },
+    {
+      "type": "dns",
+      "tag": "dns-out"
     }
   ],
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "path": "cache.db",
-      "cache_id": "default"
-    }
-  },
   "route": {
+    "auto_detect_interface": true,
     "rule_set": [
       {
-        "tag": "geosite-geolocation-!cn",
         "type": "remote",
         "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
         "download_detour": "direct",
-        "update_interval": "1d"
-      },
-      {
         "tag": "geosite-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-        "download_detour": "direct",
-        "update_interval": "1d"
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs"
       },
       {
-        "tag": "geosite-geolocation-cn",
         "type": "remote",
         "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs",
         "download_detour": "direct",
-        "update_interval": "1d"
-      },
-      {
         "tag": "geosite-category-ads-all",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-        "download_detour": "direct",
-        "update_interval": "1d"
-      },
-      {
-        "tag": "geoip-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
-        "download_detour": "direct",
-        "update_interval": "1d"
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs"
       }
     ],
     "rules": [
       {
-        "protocol": "dns",
-        "action": "hijack-dns"
-      },
-      {
-        "action": "sniff"
-      },
-      {
-        "rule_set": "geosite-category-ads-all",
+        "geosite": "category-ads-all",
         "outbound": "block"
       },
       {
-        "ip_is_private": true,
+        "outbound": "dns-out",
+        "protocol": "dns"
+      },
+      {
+        "geoip": ["cn", "private"],
         "outbound": "direct"
       },
       {
-        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
+        "geosite": "cn",
         "outbound": "direct"
-      },
-      {
-        "rule_set": "geoip-cn",
-        "outbound": "direct"
-      },
-      {
-        "rule_set": "geosite-geolocation-!cn",
-        "outbound": "Hysteria2-Server"
       }
     ],
-    "final": "Hysteria2-Server",
-    "auto_detect_interface": true,
-    "override_android_vpn": true
+    "final": "節點選擇"
   }
 }
 EOF
@@ -922,65 +885,88 @@ EOF
     # 5. SingBox PC端配置（带inbounds）
     cat > "$singbox_pc_sub" << EOF
 {
-  "log": {
-    "disabled": false,
-    "level": "info",
-    "timestamp": true
-  },
   "dns": {
-    "servers": [
-      {
-        "tag": "dns_proxy",
-        "address": "https://1.1.1.1/dns-query",
-        "address_resolver": "dns_resolver",
-        "strategy": "ipv4_only",
-        "detour": "Hysteria2-Server"
-      },
-      {
-        "tag": "dns_direct",
-        "address": "https://223.5.5.5/dns-query",
-        "address_resolver": "dns_resolver",
-        "strategy": "ipv4_only",
-        "detour": "direct"
-      },
-      {
-        "tag": "dns_resolver",
-        "address": "223.5.5.5",
-        "detour": "direct"
-      },
-      {
-        "tag": "dns_block",
-        "address": "rcode://success"
-      }
-    ],
     "rules": [
       {
-        "rule_set": "geosite-category-ads-all",
-        "server": "dns_block"
+        "outbound": ["any"],
+        "server": "local"
       },
       {
-        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
-        "server": "dns_direct"
+        "clash_mode": "global",
+        "server": "remote"
       },
       {
-        "rule_set": "geosite-geolocation-!cn",
-        "server": "dns_proxy"
+        "clash_mode": "direct",
+        "server": "local"
+      },
+      {
+        "rule_set": ["geosite-cn"],
+        "server": "local"
       }
     ],
-    "final": "dns_proxy",
-    "independent_cache": true,
-    "strategy": "ipv4_only"
+    "servers": [
+      {
+        "address": "https://1.1.1.1/dns-query",
+        "detour": "Hysteria2-Server",
+        "tag": "remote"
+      },
+      {
+        "address": "https://223.5.5.5/dns-query",
+        "detour": "direct",
+        "tag": "local"
+      },
+      {
+        "address": "rcode://success",
+        "tag": "block"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "cache_id": "cache_db",
+      "store_fakeip": true
+    }
   },
   "inbounds": [
     {
-      "type": "mixed",
+      "domain_strategy": "prefer_ipv4",
       "listen": "127.0.0.1",
-      "listen_port": 1080,
+      "listen_port": 2333,
       "sniff": true,
+      "sniff_override_destination": true,
+      "tag": "socks-in",
+      "type": "socks",
+      "users": []
+    },
+    {
+      "domain_strategy": "prefer_ipv4",
+      "listen": "127.0.0.1",
+      "listen_port": 2334,
+      "sniff": true,
+      "sniff_override_destination": true,
+      "tag": "mixed-in",
+      "type": "mixed",
       "users": []
     }
   ],
   "outbounds": [
+    {
+      "tag": "節點選擇",
+      "type": "selector",
+      "outbounds": ["自動選擇", "Hysteria2-Server"],
+      "default": "自動選擇"
+    },
+    {
+      "tag": "自動選擇",
+      "type": "urltest",
+      "outbounds": ["Hysteria2-Server"],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
     {
       "type": "hysteria2",
       "tag": "Hysteria2-Server",
@@ -1030,89 +1016,49 @@ EOF
     {
       "type": "block",
       "tag": "block"
+    },
+    {
+      "type": "dns",
+      "tag": "dns-out"
     }
   ],
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "path": "cache.db",
-      "cache_id": "default"
-    }
-  },
   "route": {
+    "auto_detect_interface": true,
     "rule_set": [
       {
-        "tag": "geosite-geolocation-!cn",
         "type": "remote",
         "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
         "download_detour": "direct",
-        "update_interval": "1d"
-      },
-      {
         "tag": "geosite-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-        "download_detour": "direct",
-        "update_interval": "1d"
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs"
       },
       {
-        "tag": "geosite-geolocation-cn",
         "type": "remote",
         "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs",
         "download_detour": "direct",
-        "update_interval": "1d"
-      },
-      {
         "tag": "geosite-category-ads-all",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-        "download_detour": "direct",
-        "update_interval": "1d"
-      },
-      {
-        "tag": "geoip-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
-        "download_detour": "direct",
-        "update_interval": "1d"
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs"
       }
     ],
     "rules": [
       {
-        "protocol": "dns",
-        "action": "hijack-dns"
-      },
-      {
-        "action": "sniff"
-      },
-      {
-        "rule_set": "geosite-category-ads-all",
+        "geosite": "category-ads-all",
         "outbound": "block"
       },
       {
-        "ip_is_private": true,
+        "outbound": "dns-out",
+        "protocol": "dns"
+      },
+      {
+        "geoip": ["cn", "private"],
         "outbound": "direct"
       },
       {
-        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
+        "geosite": "cn",
         "outbound": "direct"
-      },
-      {
-        "rule_set": "geoip-cn",
-        "outbound": "direct"
-      },
-      {
-        "rule_set": "geosite-geolocation-!cn",
-        "outbound": "Hysteria2-Server"
       }
     ],
-    "final": "Hysteria2-Server",
-    "auto_detect_interface": true
+    "final": "節點選擇"
   }
 }
 EOF
