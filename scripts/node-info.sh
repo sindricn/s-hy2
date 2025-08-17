@@ -356,14 +356,14 @@ EOF
         "type": "remote",
         "tag": "geoip-cn",
         "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "download_detour": "Hysteria2-Server"
       },
       {
         "type": "remote",
-        "tag": "geosite-cn", 
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+        "tag": "geosite-cn",
+        "format": "binary", 
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
         "download_detour": "Hysteria2-Server"
       }
     ],
@@ -800,14 +800,14 @@ EOF
         "type": "remote",
         "tag": "geoip-cn",
         "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "download_detour": "Hysteria2-Server"
       },
       {
         "type": "remote",
-        "tag": "geosite-cn", 
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+        "tag": "geosite-cn",
+        "format": "binary", 
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
         "download_detour": "Hysteria2-Server"
       }
     ],
@@ -921,14 +921,14 @@ EOF
         "type": "remote",
         "tag": "geoip-cn",
         "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "download_detour": "Hysteria2-Server"
       },
       {
         "type": "remote",
-        "tag": "geosite-cn", 
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+        "tag": "geosite-cn",
+        "format": "binary", 
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
         "download_detour": "Hysteria2-Server"
       }
     ],
