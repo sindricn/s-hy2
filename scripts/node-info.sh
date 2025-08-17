@@ -217,7 +217,7 @@ EOF
     
     cat << EOF
   "tls": {
-    "enabled": true,
+        "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -308,7 +308,7 @@ EOF
     
     cat << EOF
       "tls": {
-    "enabled": true,
+        "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -360,8 +360,8 @@ EOF
         "download_detour": "Hysteria2-Server"
       },
       {
-        "tag": "geosite-cn", 
-        "type": "remote",
+        "tag": "geosite-cn",
+        "type": "remote", 
         "format": "binary",
         "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
         "download_detour": "Hysteria2-Server"
@@ -721,8 +721,7 @@ EOF
       },
       {
         "tag": "local",
-        "type": "udp", 
-        "server": "223.5.5.5",
+        "address": "223.5.5.5",
         "detour": "direct"
       }
     ],
@@ -753,7 +752,7 @@ EOF
     
     cat >> "$singbox_sub" << EOF
       "tls": {
-    "enabled": true,
+        "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -805,8 +804,8 @@ EOF
         "download_detour": "Hysteria2-Server"
       },
       {
-        "tag": "geosite-cn", 
-        "type": "remote",
+        "tag": "geosite-cn",
+        "type": "remote", 
         "format": "binary",
         "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
         "download_detour": "Hysteria2-Server"
@@ -874,7 +873,7 @@ EOF
     
     cat >> "$singbox_pc_sub" << EOF
       "tls": {
-    "enabled": true,
+        "enabled": true,
 EOF
     
     if [[ -n "$sni_domain" ]]; then
@@ -926,8 +925,8 @@ EOF
         "download_detour": "Hysteria2-Server"
       },
       {
-        "tag": "geosite-cn", 
-        "type": "remote",
+        "tag": "geosite-cn",
+        "type": "remote", 
         "format": "binary",
         "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
         "download_detour": "Hysteria2-Server"
