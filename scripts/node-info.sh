@@ -197,13 +197,19 @@ generate_singbox_config() {
     local insecure="$6"
 
     cat << EOF
-# SingBox 配置片段 (Hysteria2)
+# SingBox 配置片段 (Hysteria2 Outbound)
 {
   "type": "hysteria2",
   "tag": "Hysteria2-Server",
   "server": "$server_address",
   "server_port": $port,
   "password": "$auth_password",
+EOF
+    
+    # SingBox 的 up_mbps 和 down_mbps 是可选的，但推荐设置
+    cat << EOF
+  "up_mbps": 100,
+  "down_mbps": 100,
 EOF
     
     if [[ -n "$obfs_password" ]]; then
@@ -582,6 +588,17 @@ EOF
       {
         "tag": "google",
         "address": "8.8.8.8"
+      },
+      {
+        "tag": "local",
+        "address": "223.5.5.5",
+        "detour": "direct"
+      }
+    ],
+    "rules": [
+      {
+        "geosite": "cn",
+        "server": "local"
       }
     ]
   },
@@ -601,6 +618,8 @@ EOF
       "server": "$server_address",
       "server_port": $port,
       "password": "$auth_password",
+      "up_mbps": 100,
+      "down_mbps": 100,
 EOF
     
     if [[ -n "$obfs_password" ]]; then
@@ -648,7 +667,7 @@ EOF
         "outbound": "direct"
       },
       {
-        "geosite": "cn",
+        "geosite": "cn", 
         "outbound": "direct"
       }
     ],
