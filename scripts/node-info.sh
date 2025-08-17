@@ -243,6 +243,128 @@ EOF
 EOF
 }
 
+# 生成 SingBox PC端配置（带inbounds）
+generate_singbox_pc_config() {
+    local server_address="$1"
+    local port="$2"
+    local auth_password="$3"
+    local obfs_password="$4"
+    local sni_domain="$5"
+    local insecure="$6"
+
+    cat << EOF
+# SingBox PC端完整配置 (Hysteria2)
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "address": "8.8.8.8"
+      },
+      {
+        "tag": "local",
+        "address": "223.5.5.5",
+        "detour": "direct"
+      }
+    ],
+    "rules": [
+      {
+        "geosite": "cn",
+        "server": "local"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "listen": "127.0.0.1",
+      "listen_port": 1080,
+      "sniff": true,
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Hysteria2-Server",
+      "server": "$server_address",
+      "server_port": $port,
+      "password": "$auth_password",
+EOF
+    
+    if [[ -n "$obfs_password" ]]; then
+        cat << EOF
+      "obfs": {
+        "type": "salamander",
+        "password": "$obfs_password"
+      },
+EOF
+    fi
+    
+    cat << EOF
+      "tls": {
+        "enabled": true,
+EOF
+    
+    if [[ -n "$sni_domain" ]]; then
+        cat << EOF
+        "server_name": "$sni_domain",
+EOF
+    fi
+    
+    if [[ "$insecure" == "true" ]]; then
+        cat << EOF
+        "insecure": true,
+EOF
+    else
+        cat << EOF
+        "insecure": false,
+EOF
+    fi
+    
+    cat << EOF
+        "alpn": ["h3"]
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "geoip": "cn",
+        "outbound": "direct"
+      },
+      {
+        "geosite": "cn",
+        "outbound": "direct"
+      }
+    ],
+    "geoip": {
+      "download_url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+      "download_detour": "Hysteria2-Server"
+    },
+    "geosite": {
+      "download_url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+      "download_detour": "Hysteria2-Server"
+    },
+    "final": "Hysteria2-Server",
+    "auto_detect_interface": true
+  }
+}
+EOF
+}
 
 # 生成客户端配置
 generate_client_config() {
@@ -442,6 +564,7 @@ generate_subscription_files() {
     local hysteria2_sub="$sub_dir/hysteria2-${uuid}.txt"
     local clash_sub="$sub_dir/clash-${uuid}.yaml"
     local singbox_sub="$sub_dir/singbox-${uuid}.json"
+    local singbox_pc_sub="$sub_dir/singbox-pc-${uuid}.json"
     local base64_sub="$sub_dir/base64-${uuid}.txt"
     
     # 1. Hysteria2 原生订阅格式
@@ -574,7 +697,7 @@ rules:
   - MATCH,🚀 节点选择
 EOF
     
-    # 4. SingBox订阅格式
+    # 4. SingBox订阅格式（移动端兼容）
     cat > "$singbox_sub" << EOF
 {
   "log": {
@@ -601,15 +724,6 @@ EOF
       }
     ]
   },
-  "inbounds": [
-    {
-      "type": "mixed",
-      "listen": "127.0.0.1",
-      "listen_port": 1080,
-      "sniff": true,
-      "users": []
-    }
-  ],
   "outbounds": [
     {
       "type": "hysteria2",
@@ -687,8 +801,121 @@ EOF
 }
 EOF
     
+    # 5. SingBox PC端配置（带inbounds）
+    cat > "$singbox_pc_sub" << EOF
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "address": "8.8.8.8"
+      },
+      {
+        "tag": "local",
+        "address": "223.5.5.5",
+        "detour": "direct"
+      }
+    ],
+    "rules": [
+      {
+        "geosite": "cn",
+        "server": "local"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "listen": "127.0.0.1",
+      "listen_port": 1080,
+      "sniff": true,
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Hysteria2-Server",
+      "server": "$server_address",
+      "server_port": $port,
+      "password": "$auth_password",
+EOF
+    
+    if [[ -n "$obfs_password" ]]; then
+        cat >> "$singbox_pc_sub" << EOF
+      "obfs": {
+        "type": "salamander",
+        "password": "$obfs_password"
+      },
+EOF
+    fi
+    
+    cat >> "$singbox_pc_sub" << EOF
+      "tls": {
+        "enabled": true,
+EOF
+    
+    if [[ -n "$sni_domain" ]]; then
+        cat >> "$singbox_pc_sub" << EOF
+        "server_name": "$sni_domain",
+EOF
+    fi
+    
+    if [[ "$insecure" == "true" ]]; then
+        cat >> "$singbox_pc_sub" << EOF
+        "insecure": true,
+EOF
+    else
+        cat >> "$singbox_pc_sub" << EOF
+        "insecure": false,
+EOF
+    fi
+    
+    cat >> "$singbox_pc_sub" << EOF
+        "alpn": ["h3"]
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "geoip": "cn",
+        "outbound": "direct"
+      },
+      {
+        "geosite": "cn", 
+        "outbound": "direct"
+      }
+    ],
+    "geoip": {
+      "download_url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
+      "download_detour": "Hysteria2-Server"
+    },
+    "geosite": {
+      "download_url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
+      "download_detour": "Hysteria2-Server"
+    },
+    "final": "Hysteria2-Server",
+    "auto_detect_interface": true
+  }
+}
+EOF
+    
     # 设置文件权限
-    chmod 644 "$hysteria2_sub" "$clash_sub" "$singbox_sub" "$base64_sub"
+    chmod 644 "$hysteria2_sub" "$clash_sub" "$singbox_sub" "$singbox_pc_sub" "$base64_sub"
     
     # 检查 nginx 或 apache 是否安装，如果没有则提示安装
     if ! command -v nginx &>/dev/null && ! command -v apache2 &>/dev/null && ! command -v httpd &>/dev/null; then
@@ -744,6 +971,7 @@ EOF
     local hysteria2_url="http://${server_host}/sub/hysteria2-${uuid}.txt"
     local clash_url="http://${server_host}/sub/clash-${uuid}.yaml"
     local singbox_url="http://${server_host}/sub/singbox-${uuid}.json"
+    local singbox_pc_url="http://${server_host}/sub/singbox-pc-${uuid}.json"
     local base64_url="http://${server_host}/sub/base64-${uuid}.txt"
     
     echo -e "${GREEN}订阅文件生成成功!${NC}"
@@ -757,15 +985,19 @@ EOF
     echo -e "${YELLOW}Clash 订阅链接:${NC}"
     echo "$clash_url"
     echo ""
-    echo -e "${YELLOW}SingBox 订阅链接:${NC}"
+    echo -e "${YELLOW}SingBox 移动端订阅链接 (推荐移动设备):${NC}"
     echo "$singbox_url"
+    echo ""
+    echo -e "${YELLOW}SingBox PC端订阅链接 (适用桌面系统):${NC}"
+    echo "$singbox_pc_url"
     echo ""
     echo -e "${BLUE}使用说明:${NC}"
     echo "• 复制相应的订阅链接到客户端的订阅功能"
     echo "• Hysteria2客户端使用原生订阅链接"
     echo "• v2rayNG等客户端可使用Base64订阅链接"
     echo "• Clash客户端使用Clash订阅链接"
-    echo "• SingBox客户端使用SingBox订阅链接"
+    echo "• SingBox移动端：使用移动端订阅链接（避免端口冲突）"
+    echo "• SingBox桌面端：使用PC端订阅链接（包含本地代理端口）"
     echo ""
 }
 
@@ -803,12 +1035,13 @@ show_client_configs() {
         echo -e "${YELLOW}选择客户端配置类型:${NC}"
         echo -e "${GREEN}1.${NC} Hysteria2 官方客户端配置"
         echo -e "${GREEN}2.${NC} Clash 配置"
-        echo -e "${GREEN}3.${NC} SingBox 配置"
-        echo -e "${GREEN}4.${NC} 保存所有配置到文件"
-        echo -e "${GREEN}5.${NC} 显示推荐客户端列表"
+        echo -e "${GREEN}3.${NC} SingBox 移动端配置 (推荐移动设备)"
+        echo -e "${GREEN}4.${NC} SingBox PC端配置 (适用桌面系统)"
+        echo -e "${GREEN}5.${NC} 保存所有配置到文件"
+        echo -e "${GREEN}6.${NC} 显示推荐客户端列表"
         echo -e "${RED}0.${NC} 返回上级菜单"
         echo ""
-        echo -n -e "${BLUE}请选择配置类型 [0-5]: ${NC}"
+        echo -n -e "${BLUE}请选择配置类型 [0-6]: ${NC}"
         read -r config_choice
         
         case $config_choice in
@@ -837,19 +1070,32 @@ show_client_configs() {
                 ;;
             3)
                 clear
-                echo -e "${CYAN}=== SingBox 配置 ===${NC}"
+                echo -e "${CYAN}=== SingBox 移动端配置 ===${NC}"
                 echo ""
                 generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
                 echo ""
                 echo -e "${BLUE}使用方法:${NC}"
                 echo "• 将上方配置添加到 SingBox 配置文件的 outbounds 部分"
-                echo "• 推荐客户端：SingBox 官方客户端"
+                echo "• 适用于：SingBox Android/iOS 客户端"
+                echo "• 特点：无 inbounds 配置，避免端口冲突"
                 echo ""
                 ;;
             4)
-                save_all_configs_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                clear
+                echo -e "${CYAN}=== SingBox PC端配置 ===${NC}"
+                echo ""
+                generate_singbox_pc_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                echo ""
+                echo -e "${BLUE}使用方法:${NC}"
+                echo "• 完整的 SingBox 配置文件，可直接使用"
+                echo "• 适用于：SingBox 桌面客户端"
+                echo "• 特点：包含 inbounds 配置，提供本地代理端口"
+                echo ""
                 ;;
             5)
+                save_all_configs_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                ;;
+            6)
                 show_recommended_clients
                 ;;
             0)
