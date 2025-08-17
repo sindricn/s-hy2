@@ -351,22 +351,6 @@ EOF
         "outbound": "direct"
       }
     ],
-    "rule_set": [
-      {
-        "type": "remote",
-        "tag": "geoip-cn",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "download_detour": "Hysteria2-Server"
-      },
-      {
-        "type": "remote",
-        "tag": "geosite-cn",
-        "format": "binary", 
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        "download_detour": "Hysteria2-Server"
-      }
-    ],
     "final": "Hysteria2-Server",
     "auto_detect_interface": true
   }
@@ -808,40 +792,17 @@ EOF
           "127.0.0.0/8",
           "192.168.0.0/16",
           "10.0.0.0/8",
-          "172.16.0.0/12",
-          "169.254.0.0/16",
-          "224.0.0.0/4",
-          "240.0.0.0/4"
+          "172.16.0.0/12"
         ],
         "outbound": "direct"
       },
       {
-        "domain_suffix": [".local"],
+        "domain_suffix": [".cn", ".local"],
         "outbound": "direct"
       },
       {
-        "rule_set": "geoip-cn",
+        "domain_keyword": ["baidu", "taobao", "qq", "weibo", "bilibili"],
         "outbound": "direct"
-      },
-      {
-        "rule_set": "geosite-cn", 
-        "outbound": "direct"
-      }
-    ],
-    "rule_set": [
-      {
-        "type": "remote",
-        "tag": "geoip-cn",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "download_detour": "Hysteria2-Server"
-      },
-      {
-        "type": "remote",
-        "tag": "geosite-cn",
-        "format": "binary", 
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        "download_detour": "Hysteria2-Server"
       }
     ],
     "final": "Hysteria2-Server",
@@ -941,40 +902,17 @@ EOF
           "127.0.0.0/8",
           "192.168.0.0/16",
           "10.0.0.0/8",
-          "172.16.0.0/12",
-          "169.254.0.0/16",
-          "224.0.0.0/4",
-          "240.0.0.0/4"
+          "172.16.0.0/12"
         ],
         "outbound": "direct"
       },
       {
-        "domain_suffix": [".local"],
+        "domain_suffix": [".cn", ".local"],
         "outbound": "direct"
       },
       {
-        "rule_set": "geoip-cn",
+        "domain_keyword": ["baidu", "taobao", "qq", "weibo", "bilibili"],
         "outbound": "direct"
-      },
-      {
-        "rule_set": "geosite-cn", 
-        "outbound": "direct"
-      }
-    ],
-    "rule_set": [
-      {
-        "type": "remote",
-        "tag": "geoip-cn",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "download_detour": "Hysteria2-Server"
-      },
-      {
-        "type": "remote",
-        "tag": "geosite-cn",
-        "format": "binary", 
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        "download_detour": "Hysteria2-Server"
       }
     ],
     "final": "Hysteria2-Server",
