@@ -719,21 +719,46 @@ EOF
   "dns": {
     "servers": [
       {
-        "tag": "google",
-        "address": "8.8.8.8"
+        "tag": "dns_proxy",
+        "address": "https://1.1.1.1/dns-query",
+        "address_resolver": "dns_resolver",
+        "strategy": "ipv4_only",
+        "detour": "Hysteria2-Server"
       },
       {
-        "tag": "local",
+        "tag": "dns_direct",
+        "address": "https://223.5.5.5/dns-query",
+        "address_resolver": "dns_resolver",
+        "strategy": "ipv4_only",
+        "detour": "direct"
+      },
+      {
+        "tag": "dns_resolver",
         "address": "223.5.5.5",
         "detour": "direct"
+      },
+      {
+        "tag": "dns_block",
+        "address": "rcode://success"
       }
     ],
     "rules": [
       {
-        "domain_suffix": [".cn"],
-        "server": "local"
+        "rule_set": "geosite-category-ads-all",
+        "server": "dns_block"
+      },
+      {
+        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
+        "server": "dns_direct"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "server": "dns_proxy"
       }
-    ]
+    ],
+    "final": "dns_proxy",
+    "independent_cache": true,
+    "strategy": "ipv4_only"
   },
   "inbounds": [
     {
@@ -802,6 +827,10 @@ EOF
     {
       "type": "direct",
       "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
     }
   ],
   "experimental": {
@@ -812,6 +841,48 @@ EOF
     }
   },
   "route": {
+    "rule_set": [
+      {
+        "tag": "geosite-geolocation-!cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-geolocation-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-category-ads-all",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      }
+    ],
     "rules": [
       {
         "protocol": "dns",
@@ -821,25 +892,29 @@ EOF
         "action": "sniff"
       },
       {
-        "ip_cidr": [
-          "127.0.0.0/8",
-          "192.168.0.0/16",
-          "10.0.0.0/8",
-          "172.16.0.0/12"
-        ],
+        "rule_set": "geosite-category-ads-all",
+        "outbound": "block"
+      },
+      {
+        "ip_is_private": true,
         "outbound": "direct"
       },
       {
-        "domain_suffix": [".cn", ".local"],
+        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
         "outbound": "direct"
       },
       {
-        "domain_keyword": ["baidu", "taobao", "qq", "weibo", "bilibili"],
+        "rule_set": "geoip-cn",
         "outbound": "direct"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "outbound": "Hysteria2-Server"
       }
     ],
     "final": "Hysteria2-Server",
-    "auto_detect_interface": true
+    "auto_detect_interface": true,
+    "override_android_vpn": true
   }
 }
 EOF
@@ -855,21 +930,46 @@ EOF
   "dns": {
     "servers": [
       {
-        "tag": "google",
-        "address": "8.8.8.8"
+        "tag": "dns_proxy",
+        "address": "https://1.1.1.1/dns-query",
+        "address_resolver": "dns_resolver",
+        "strategy": "ipv4_only",
+        "detour": "Hysteria2-Server"
       },
       {
-        "tag": "local",
+        "tag": "dns_direct",
+        "address": "https://223.5.5.5/dns-query",
+        "address_resolver": "dns_resolver",
+        "strategy": "ipv4_only",
+        "detour": "direct"
+      },
+      {
+        "tag": "dns_resolver",
         "address": "223.5.5.5",
         "detour": "direct"
+      },
+      {
+        "tag": "dns_block",
+        "address": "rcode://success"
       }
     ],
     "rules": [
       {
-        "domain_suffix": [".cn"],
-        "server": "local"
+        "rule_set": "geosite-category-ads-all",
+        "server": "dns_block"
+      },
+      {
+        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
+        "server": "dns_direct"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "server": "dns_proxy"
       }
-    ]
+    ],
+    "final": "dns_proxy",
+    "independent_cache": true,
+    "strategy": "ipv4_only"
   },
   "inbounds": [
     {
@@ -926,6 +1026,10 @@ EOF
     {
       "type": "direct",
       "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
     }
   ],
   "experimental": {
@@ -936,6 +1040,48 @@ EOF
     }
   },
   "route": {
+    "rule_set": [
+      {
+        "tag": "geosite-geolocation-!cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-geolocation-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-category-ads-all",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      }
+    ],
     "rules": [
       {
         "protocol": "dns",
@@ -945,21 +1091,24 @@ EOF
         "action": "sniff"
       },
       {
-        "ip_cidr": [
-          "127.0.0.0/8",
-          "192.168.0.0/16",
-          "10.0.0.0/8",
-          "172.16.0.0/12"
-        ],
+        "rule_set": "geosite-category-ads-all",
+        "outbound": "block"
+      },
+      {
+        "ip_is_private": true,
         "outbound": "direct"
       },
       {
-        "domain_suffix": [".cn", ".local"],
+        "rule_set": ["geosite-cn", "geosite-geolocation-cn"],
         "outbound": "direct"
       },
       {
-        "domain_keyword": ["baidu", "taobao", "qq", "weibo", "bilibili"],
+        "rule_set": "geoip-cn",
         "outbound": "direct"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "outbound": "Hysteria2-Server"
       }
     ],
     "final": "Hysteria2-Server",
