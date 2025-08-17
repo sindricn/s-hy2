@@ -353,18 +353,22 @@ EOF
     ],
     "rule_set": [
       {
+        "type": "inline",
         "tag": "geoip-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
-        "download_detour": "Hysteria2-Server"
+        "rules": [
+          {
+            "geoip": "cn"
+          }
+        ]
       },
       {
+        "type": "inline", 
         "tag": "geosite-cn",
-        "type": "remote", 
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
-        "download_detour": "Hysteria2-Server"
+        "rules": [
+          {
+            "geosite": "cn"
+          }
+        ]
       }
     ],
     "final": "Hysteria2-Server",
@@ -797,18 +801,22 @@ EOF
     ],
     "rule_set": [
       {
+        "type": "inline",
         "tag": "geoip-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
-        "download_detour": "Hysteria2-Server"
+        "rules": [
+          {
+            "geoip": "cn"
+          }
+        ]
       },
       {
+        "type": "inline", 
         "tag": "geosite-cn",
-        "type": "remote", 
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
-        "download_detour": "Hysteria2-Server"
+        "rules": [
+          {
+            "geosite": "cn"
+          }
+        ]
       }
     ],
     "final": "Hysteria2-Server",
@@ -918,18 +926,22 @@ EOF
     ],
     "rule_set": [
       {
+        "type": "inline",
         "tag": "geoip-cn",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db",
-        "download_detour": "Hysteria2-Server"
+        "rules": [
+          {
+            "geoip": "cn"
+          }
+        ]
       },
       {
+        "type": "inline", 
         "tag": "geosite-cn",
-        "type": "remote", 
-        "format": "binary",
-        "url": "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db",
-        "download_detour": "Hysteria2-Server"
+        "rules": [
+          {
+            "geosite": "cn"
+          }
+        ]
       }
     ],
     "final": "Hysteria2-Server",
