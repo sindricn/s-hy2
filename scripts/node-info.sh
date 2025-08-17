@@ -274,7 +274,7 @@ generate_singbox_pc_config() {
     ],
     "rules": [
       {
-        "rule_set": "geosite-cn",
+        "domain_suffix": [".cn"],
         "server": "local"
       }
     ]
@@ -342,14 +342,6 @@ EOF
         "domain_keyword": ["google", "youtube", "twitter", "facebook", "github"],
         "outbound": "Hysteria2-Server"
       },
-      {
-        "rule_set": "geoip-cn",
-        "outbound": "direct"
-      },
-      {
-        "rule_set": "geosite-cn",
-        "outbound": "direct"
-      }
     ],
     "final": "Hysteria2-Server",
     "auto_detect_interface": true
@@ -711,7 +703,7 @@ EOF
     ],
     "rules": [
       {
-        "rule_set": "geosite-cn",
+        "domain_suffix": [".cn"],
         "server": "local"
       }
     ]
@@ -833,7 +825,7 @@ EOF
     ],
     "rules": [
       {
-        "rule_set": "geosite-cn",
+        "domain_suffix": [".cn"],
         "server": "local"
       }
     ]
