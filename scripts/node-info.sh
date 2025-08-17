@@ -339,9 +339,22 @@ EOF
   "route": {
     "rules": [
       {
-        "domain_keyword": ["google", "youtube", "twitter", "facebook", "github"],
-        "outbound": "Hysteria2-Server"
+        "ip_cidr": [
+          "127.0.0.0/8",
+          "192.168.0.0/16",
+          "10.0.0.0/8",
+          "172.16.0.0/12"
+        ],
+        "outbound": "direct"
       },
+      {
+        "domain_suffix": [".cn", ".local"],
+        "outbound": "direct"
+      },
+      {
+        "domain_keyword": ["baidu", "taobao", "qq", "weibo", "bilibili"],
+        "outbound": "direct"
+      }
     ],
     "final": "Hysteria2-Server",
     "auto_detect_interface": true
