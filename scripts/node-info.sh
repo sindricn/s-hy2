@@ -783,6 +783,14 @@ EOF
   "route": {
     "rules": [
       {
+        "domain_suffix": [".google.com", ".youtube.com", ".twitter.com", ".facebook.com", ".github.com"],
+        "outbound": "Hysteria2-Server"
+      },
+      {
+        "domain_keyword": ["google", "youtube", "twitter", "facebook", "github"],
+        "outbound": "Hysteria2-Server"
+      },
+      {
         "rule_set": "geoip-cn",
         "outbound": "direct"
       },
@@ -899,6 +907,14 @@ EOF
   ],
   "route": {
     "rules": [
+      {
+        "domain_suffix": [".google.com", ".youtube.com", ".twitter.com", ".facebook.com", ".github.com"],
+        "outbound": "Hysteria2-Server"
+      },
+      {
+        "domain_keyword": ["google", "youtube", "twitter", "facebook", "github"],
+        "outbound": "Hysteria2-Server"
+      },
       {
         "rule_set": "geoip-cn",
         "outbound": "direct"
