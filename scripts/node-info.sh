@@ -343,6 +343,21 @@ EOF
   "route": {
     "rules": [
       {
+        "domain_suffix": [".local"],
+        "outbound": "direct"
+      },
+      {
+        "ip_cidr": [
+          "192.168.0.0/16",
+          "10.0.0.0/8", 
+          "172.16.0.0/12",
+          "127.0.0.0/8",
+          "100.64.0.0/10",
+          "169.254.0.0/16"
+        ],
+        "outbound": "direct"
+      },
+      {
         "rule_set": "geoip-cn",
         "outbound": "direct"
       },
