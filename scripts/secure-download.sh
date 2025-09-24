@@ -6,14 +6,18 @@
 # 严格错误处理
 set -euo pipefail
 
-# 安全下载配置
-readonly DOWNLOAD_TIMEOUT=30
-readonly MAX_FILE_SIZE=$((10 * 1024 * 1024))  # 10MB
-readonly ALLOWED_PROTOCOLS=("https")
-readonly USER_AGENT="s-hy2-secure-downloader/1.0"
+# 安全下载配置 (防止重复定义)
+if [[ -z "${DOWNLOAD_TIMEOUT:-}" ]]; then
+    readonly DOWNLOAD_TIMEOUT=30
+    readonly MAX_FILE_SIZE=$((10 * 1024 * 1024))  # 10MB
+    readonly ALLOWED_PROTOCOLS=("https")
+    readonly USER_AGENT="s-hy2-secure-downloader/1.0"
+fi
 
 # 临时目录
-readonly SECURE_TEMP_DIR="/tmp/s-hy2-secure-$$"
+if [[ -z "${SECURE_TEMP_DIR:-}" ]]; then
+    readonly SECURE_TEMP_DIR="/tmp/s-hy2-secure-$$"
+fi
 
 # 清理函数
 cleanup_temp_files() {

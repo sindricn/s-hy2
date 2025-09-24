@@ -15,12 +15,14 @@ else
     exit 1
 fi
 
-# 防火墙类型常量
-readonly FW_UNKNOWN=0
-readonly FW_IPTABLES=1
-readonly FW_FIREWALLD=2
-readonly FW_UFW=3
-readonly FW_NFTABLES=4
+# 防火墙类型常量 (防止重复定义)
+if [[ -z "${FW_UNKNOWN:-}" ]]; then
+    readonly FW_UNKNOWN=0
+    readonly FW_IPTABLES=1
+    readonly FW_FIREWALLD=2
+    readonly FW_UFW=3
+    readonly FW_NFTABLES=4
+fi
 
 # 全局变量
 DETECTED_FIREWALL=$FW_UNKNOWN

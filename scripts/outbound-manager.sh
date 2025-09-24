@@ -15,10 +15,16 @@ else
     exit 1
 fi
 
-# 配置路径
-readonly HYSTERIA_CONFIG="/etc/hysteria/config.yaml"
-readonly OUTBOUND_TEMPLATES_DIR="$SCRIPT_DIR/outbound-templates"
-readonly BACKUP_DIR="/var/backups/s-hy2/outbound"
+# 配置路径 (防止重复定义)
+if [[ -z "${HYSTERIA_CONFIG:-}" ]]; then
+    readonly HYSTERIA_CONFIG="/etc/hysteria/config.yaml"
+fi
+if [[ -z "${OUTBOUND_TEMPLATES_DIR:-}" ]]; then
+    readonly OUTBOUND_TEMPLATES_DIR="$SCRIPT_DIR/outbound-templates"
+fi
+if [[ -z "${BACKUP_DIR:-}" ]]; then
+    readonly BACKUP_DIR="/var/backups/s-hy2/outbound"
+fi
 
 # 初始化出站管理
 init_outbound_manager() {

@@ -20,10 +20,16 @@ if [[ -f "$SCRIPT_DIR/firewall-manager.sh" ]]; then
     source "$SCRIPT_DIR/firewall-manager.sh"
 fi
 
-# 配置路径
-readonly HYSTERIA_CONFIG="/etc/hysteria/config.yaml"
-readonly HYSTERIA_SERVICE="hysteria-server"
-readonly CHECK_TIMEOUT=10
+# 配置路径 (防止重复定义)
+if [[ -z "${HYSTERIA_CONFIG:-}" ]]; then
+    readonly HYSTERIA_CONFIG="/etc/hysteria/config.yaml"
+fi
+if [[ -z "${HYSTERIA_SERVICE:-}" ]]; then
+    readonly HYSTERIA_SERVICE="hysteria-server"
+fi
+if [[ -z "${CHECK_TIMEOUT:-}" ]]; then
+    readonly CHECK_TIMEOUT=10
+fi
 
 # 全面部署检查
 comprehensive_deploy_check() {
