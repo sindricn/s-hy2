@@ -3,8 +3,8 @@
 # Hysteria2 部署后检查模块
 # 确保节点部署完成后各项功能正常
 
-# 严格错误处理
-set -euo pipefail
+# 适度的错误处理
+set -uo pipefail
 
 # 加载公共库
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -3,8 +3,8 @@
 # Hysteria2 出站规则管理模块
 # 用于配置和管理 Hysteria2 的出站规则
 
-# 严格错误处理
-set -euo pipefail
+# 适度的错误处理
+set -uo pipefail
 
 # 加载公共库
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,9 +130,9 @@ show_outbound_menu() {
 view_current_outbound() {
     log_info "查看当前出站配置"
 
-    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
-        log_warn "Hysteria2 配置文件不存在"
-        return 1
+    # 使用统一的检查函数
+    if ! check_hysteria2_ready "config"; then
+        return 0  # 友好返回，不退出脚本
     fi
 
     echo -e "${BLUE}=== 当前出站配置 ===${NC}"

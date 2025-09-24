@@ -3,8 +3,8 @@
 # Hysteria2 防火墙管理模块
 # 自动检测并管理 Linux 系统防火墙
 
-# 严格错误处理
-set -euo pipefail
+# 适度的错误处理
+set -uo pipefail
 
 # 加载公共库
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

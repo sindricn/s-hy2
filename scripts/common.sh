@@ -3,8 +3,8 @@
 # 公共函数库 - 统一错误处理和日志记录
 # 为所有脚本提供标准化的错误处理、日志记录和工具函数
 
-# 严格错误处理
-set -euo pipefail
+# 适度的错误处理 (不使用 -e 避免意外退出)
+set -uo pipefail
 
 # 全局变量 (防止重复定义)
 if [[ -z "${SCRIPT_NAME:-}" ]]; then
@@ -274,6 +274,50 @@ require_root() {
 wait_for_user() {
     echo ""
     read -p "按回车键继续..." -r
+}
+
+# 检查Hysteria2是否已安装和配置
+check_hysteria2_ready() {
+    local check_type="${1:-install}"  # install, config, service
+
+    case $check_type in
+        "install")
+            if ! command -v hysteria >/dev/null 2>&1; then
+                log_warn "Hysteria2 未安装"
+                echo ""
+                echo -e "${YELLOW}提示：${NC}请先安装 Hysteria2"
+                echo "  返回主菜单选择 '1. 安装 Hysteria2'"
+                echo ""
+                wait_for_user
+                return 1
+            fi
+            ;;
+        "config")
+            if [[ ! -f "/etc/hysteria/config.yaml" ]]; then
+                log_warn "Hysteria2 配置文件不存在"
+                echo ""
+                echo -e "${YELLOW}提示：${NC}请先配置 Hysteria2"
+                echo "  1. 返回主菜单选择 '2. 快速配置' 或 '3. 手动配置'"
+                echo "  2. 如未安装，请先选择 '1. 安装 Hysteria2'"
+                echo ""
+                wait_for_user
+                return 1
+            fi
+            ;;
+        "service")
+            if ! systemctl is-enabled hysteria-server >/dev/null 2>&1; then
+                log_warn "Hysteria2 服务未启用"
+                echo ""
+                echo -e "${YELLOW}提示：${NC}请先启用服务"
+                echo "  返回主菜单选择 '7. 服务管理'"
+                echo ""
+                wait_for_user
+                return 1
+            fi
+            ;;
+    esac
+
+    return 0
 }
 
 # 显示进度条

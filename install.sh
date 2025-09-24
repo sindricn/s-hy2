@@ -3,8 +3,8 @@
 # Hysteria2 安装脚本 (改进版本)
 # 作为 s-hy2 管理脚本的一部分
 
-# 严格错误处理
-set -euo pipefail
+# 适度的错误处理
+set -uo pipefail
 
 # 加载公共库
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,30 +79,22 @@ check_system_compatibility() {
 # 检查网络连接
 check_network_connection() {
     log_info "检查网络连接..."
-    
+
     local test_urls=(
-        "github.com"
-        "get.hy2.sh"
-        "google.com"
+        "https://github.com"
+        "https://get.hy2.sh"
+        "https://www.google.com"
+        "https://raw.githubusercontent.com"
     )
-    
+
     local connected=false
+    # 直接使用 HTTP 连接测试，更可靠
     for url in "${test_urls[@]}"; do
-        if ping -c 1 -W 5 "$url" &>/dev/null; then
+        if curl -s --connect-timeout 3 --max-time 8 --head "$url" >/dev/null 2>&1; then
             connected=true
             break
         fi
     done
-    
-    if ! $connected; then
-        # 尝试 HTTP 连接测试
-        for url in "${test_urls[@]}"; do
-            if curl -s --connect-timeout 5 --max-time 10 "https://$url" &>/dev/null; then
-                connected=true
-                break
-            fi
-        done
-    fi
     
     if $connected; then
         log_success "网络连接正常"
