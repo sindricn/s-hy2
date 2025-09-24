@@ -134,7 +134,7 @@ download_scripts() {
     echo -e "${BLUE}下载 Hysteria2 配置管理脚本...${NC}"
 
     # 创建安装目录
-    if ! mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/scripts" "$INSTALL_DIR/templates"; then
+    if ! mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/scripts" "$INSTALL_DIR/templates" "$INSTALL_DIR/scripts/outbound-templates"; then
         echo -e "${RED}错误: 无法创建安装目录${NC}"
         exit 1
     fi
@@ -154,11 +154,20 @@ download_scripts() {
     # 下载功能脚本
     echo "下载功能模块..."
     local scripts=(
+        "common.sh:公共库脚本"
         "install.sh:安装脚本"
         "config.sh:配置脚本"
+        "config-loader.sh:配置加载器"
         "service.sh:服务管理脚本"
         "domain-test.sh:域名测试脚本"
         "node-info.sh:节点信息脚本"
+        "input-validation.sh:输入验证模块"
+        "secure-download.sh:安全下载模块"
+        "firewall-manager.sh:防火墙管理模块"
+        "outbound-manager.sh:出站管理模块"
+        "performance-monitor.sh:性能监控模块"
+        "performance-utils.sh:性能工具模块"
+        "post-deploy-check.sh:部署后检查模块"
     )
 
     for script_info in "${scripts[@]}"; do
@@ -179,6 +188,21 @@ download_scripts() {
     for template_info in "${templates[@]}"; do
         IFS=':' read -r template_name template_desc <<< "$template_info"
         if ! download_file "$RAW_URL/templates/$template_name" "templates/$template_name" "$template_desc"; then
+            ((failed_downloads++))
+        fi
+    done
+
+    # 下载出站模板
+    echo "下载出站配置模板..."
+    local outbound_templates=(
+        "direct.yaml:直连出站模板"
+        "socks5.yaml:SOCKS5出站模板"
+        "http.yaml:HTTP出站模板"
+    )
+
+    for template_info in "${outbound_templates[@]}"; do
+        IFS=':' read -r template_name template_desc <<< "$template_info"
+        if ! download_file "$RAW_URL/scripts/outbound-templates/$template_name" "scripts/outbound-templates/$template_name" "$template_desc"; then
             ((failed_downloads++))
         fi
     done
@@ -266,6 +290,10 @@ show_completion() {
     echo "  ✓ 服务管理和监控"
     echo "  ✓ 节点信息和订阅链接生成"
     echo "  ✓ 配置管理和证书管理"
+    echo "  ✓ 防火墙智能管理"
+    echo "  ✓ 出站代理配置"
+    echo "  ✓ 性能监控和优化"
+    echo "  ✓ 部署后安全检查"
     echo ""
     echo -e "${YELLOW}快速开始:${NC}"
     echo "1. 运行: sudo s-hy2"
