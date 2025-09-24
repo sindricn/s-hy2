@@ -3,7 +3,18 @@
     "allow": [
       "Bash(rm:*)",
       "Bash(sed:*)",
-      "WebFetch(domain:sing-box.sagernet.org)"
+      "WebFetch(domain:sing-box.sagernet.org)",
+      "Bash(find:*)",
+      "Bash(shellcheck:*)",
+      "Bash(chmod:*)",
+      "Bash(bash scripts/validate-improvements.sh:*)",
+      "Bash(bash:*)",
+      "Bash(for script in common.sh outbound-manager.sh firewall-manager.sh post-deploy-check.sh)",
+      "Bash(do echo \"检查 $script:\")",
+      "Bash(done)",
+      "Bash(for:*)",
+      "Bash(do bash -n \"$script\")",
+      "Bash(timeout:*)"
     ],
     "deny": []
   }

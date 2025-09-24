@@ -1,0 +1,65 @@
+# SOCKS5 代理出站配置模板
+# 适用于国内外分流需求
+
+listen: :443
+
+# TLS 证书配置
+tls:
+  cert: /etc/hysteria/cert.crt
+  key: /etc/hysteria/cert.key
+
+# 认证配置
+auth:
+  type: password
+  password: your_password_here
+
+# 带宽配置
+bandwidth:
+  up: 100 mbps
+  down: 100 mbps
+
+# 出站规则配置
+outbounds:
+  - name: direct_out
+    type: direct
+    direct:
+      mode: auto
+  - name: socks5_out
+    type: socks5
+    socks5:
+      addr: "proxy.example.com:1080"
+      username: "your_username"  # 可选
+      password: "your_password"  # 可选
+
+# ACL 规则 - 国外走代理，国内直连
+acl: |
+  # 国外 IP 走 SOCKS5 代理
+  socks5_out(geoip:!cn)
+
+  # 特定网站走代理
+  socks5_out(suffix:google.com)
+  socks5_out(suffix:youtube.com)
+  socks5_out(suffix:facebook.com)
+  socks5_out(suffix:twitter.com)
+  socks5_out(suffix:instagram.com)
+
+  # 国内 IP 直连
+  direct_out(geoip:cn)
+
+  # 其他所有连接直连
+  direct_out(all)
+
+# 混淆配置（可选）
+obfs:
+  type: salamander
+  salamander:
+    password: your_obfs_password
+
+# 忽略客户端带宽
+ignoreClientBandwidth: false
+
+# 禁用 UDP
+disableUDP: false
+
+# UDP 会话超时
+udpIdleTimeout: 60s

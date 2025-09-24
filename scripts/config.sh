@@ -1,6 +1,16 @@
 #!/bin/bash
 
-# Hysteria2 配置生成脚本
+# Hysteria2 配置生成脚本 (安全版本)
+# 严格错误处理
+set -euo pipefail
+
+# 加载安全输入验证模块
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$script_dir/input-validation.sh" ]]; then
+    source "$script_dir/input-validation.sh"
+else
+    echo "警告: 安全输入验证模块未找到" >&2
+fi
 
 # 等待用户确认
 wait_for_user() {
@@ -8,10 +18,26 @@ wait_for_user() {
     read -p "按回车键继续..." -r
 }
 
-# 生成随机密码
+# 生成随机密码 (安全版本)
 generate_password() {
-    local length=${1:-12}
-    openssl rand -base64 $length | tr -d "=+/" | cut -c1-$length
+    local length="${1:-12}"
+
+    # 验证长度参数
+    if command -v validate_number_secure >/dev/null 2>&1; then
+        if ! validate_number_secure "$length" 8 64; then
+            echo "警告: 密码长度无效，使用默认值12" >&2
+            length=12
+        fi
+    else
+        # 基础验证
+        if [[ ! "$length" =~ ^[0-9]+$ ]] || [[ $length -lt 8 ]] || [[ $length -gt 64 ]]; then
+            echo "警告: 密码长度无效，使用默认值12" >&2
+            length=12
+        fi
+    fi
+
+    # 安全生成密码
+    openssl rand -base64 "$length" | tr -d "=+/" | cut -c1-"$length"
 }
 
 # 验证域名格式

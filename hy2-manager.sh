@@ -50,6 +50,35 @@ CONFIG_PATH="/etc/hysteria/config.yaml"
 SERVER_DOMAIN_CONFIG="/etc/hysteria/server-domain.conf"
 SERVICE_NAME="hysteria-server.service"
 
+# 加载新功能模块
+load_new_modules() {
+    # 加载公共库
+    if [[ -f "$SCRIPTS_DIR/common.sh" ]]; then
+        source "$SCRIPTS_DIR/common.sh"
+    fi
+
+    # 加载出站规则管理模块
+    if [[ -f "$SCRIPTS_DIR/outbound-manager.sh" ]]; then
+        source "$SCRIPTS_DIR/outbound-manager.sh"
+    else
+        log_warn "出站规则管理模块未找到"
+    fi
+
+    # 加载防火墙管理模块
+    if [[ -f "$SCRIPTS_DIR/firewall-manager.sh" ]]; then
+        source "$SCRIPTS_DIR/firewall-manager.sh"
+    else
+        log_warn "防火墙管理模块未找到"
+    fi
+
+    # 加载部署后检查模块
+    if [[ -f "$SCRIPTS_DIR/post-deploy-check.sh" ]]; then
+        source "$SCRIPTS_DIR/post-deploy-check.sh"
+    else
+        log_warn "部署后检查模块未找到"
+    fi
+}
+
 # 日志记录函数
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -125,11 +154,13 @@ print_menu() {
     echo -e "${GREEN} 6.${NC} 证书管理"
     echo -e "${GREEN} 7.${NC} 服务管理"
     echo -e "${GREEN} 8.${NC} 订阅链接"
-    echo -e "${GREEN} 9.${NC} 卸载服务"
-    echo -e "${GREEN}10.${NC} 关于脚本"
+    echo -e "${CYAN} 9.${NC} 出站规则配置"  # 新增
+    echo -e "${CYAN}10.${NC} 防火墙管理"    # 新增
+    echo -e "${GREEN}11.${NC} 卸载服务"
+    echo -e "${GREEN}12.${NC} 关于脚本"
     echo -e "${RED} 0.${NC} 退出"
     echo ""
-    echo -n -e "${BLUE}请输入选项 [0-10]: ${NC}"
+    echo -n -e "${BLUE}请输入选项 [0-12]: ${NC}"
 }
 
 # 检查 Hysteria2 是否已安装
@@ -2507,8 +2538,8 @@ main() {
         read -r choice
         
         # 输入验证
-        if ! validate_input "$choice" 0 10; then
-            log_error "请输入 0-10 之间的数字"
+        if ! validate_input "$choice" 0 12; then
+            log_error "请输入 0-12 之间的数字"
             sleep 2
             continue
         fi
@@ -2522,8 +2553,10 @@ main() {
             6) certificate_management ;;
             7) manage_service ;;
             8) show_node_info ;;
-            9) uninstall_hysteria ;;
-            10) about_script ;;
+            9) manage_outbound ;;
+            10) manage_firewall ;;
+            11) uninstall_hysteria ;;
+            12) about_script ;;
             0)
                 echo -e "${GREEN}感谢使用 Hysteria2 配置管理脚本!${NC}"
                 exit 0
@@ -2556,14 +2589,17 @@ check_dependencies() {
 init_script() {
     # 设置严格模式（但允许某些命令失败）
     set -o pipefail
-    
+
     # 检查依赖
     check_dependencies
-    
+
     # 检查脚本目录权限
     if [[ ! -r "$SCRIPT_DIR" ]]; then
         error_exit "无法访问脚本目录: $SCRIPT_DIR"
     fi
+
+    # 加载新功能模块
+    load_new_modules
 }
 
 # 运行主程序

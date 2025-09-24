@@ -1,40 +1,30 @@
 #!/bin/bash
 
-# Hysteria2 安装脚本
+# Hysteria2 安装脚本 (改进版本)
 # 作为 s-hy2 管理脚本的一部分
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# 严格错误处理
+set -euo pipefail
 
-# 日志函数
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+# 加载公共库
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/scripts/common.sh" ]]; then
+    source "$SCRIPT_DIR/scripts/common.sh"
+elif [[ -f "$(dirname "$0")/scripts/common.sh" ]]; then
+    source "$(dirname "$0")/scripts/common.sh"
+else
+    echo "错误: 无法找到公共库 common.sh" >&2
+    exit 1
+fi
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
+# 加载安全模块
+if [[ -f "$SCRIPT_DIR/scripts/input-validation.sh" ]]; then
+    source "$SCRIPT_DIR/scripts/input-validation.sh"
+fi
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-# 错误处理
-error_exit() {
-    log_error "$1"
-    echo ""
-    read -p "按回车键继续..." -r
-    exit "${2:-1}"
-}
+if [[ -f "$SCRIPT_DIR/scripts/secure-download.sh" ]]; then
+    source "$SCRIPT_DIR/scripts/secure-download.sh"
+fi
 
 # 获取系统信息
 get_system_info() {
@@ -191,39 +181,74 @@ backup_existing_config() {
     return 1
 }
 
-# 安装 Hysteria2
+# 安装 Hysteria2 (安全版本)
 install_hysteria2_binary() {
     log_info "开始安装 Hysteria2..."
-    
+
+    # 加载安全下载模块
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$script_dir/scripts/secure-download.sh" ]]; then
+        source "$script_dir/scripts/secure-download.sh"
+    else
+        log_warn "安全下载模块未找到，使用基础安全检查"
+    fi
+
     # 设置安装脚本的环境变量
     export HYSTERIA_INSTALL_METHOD="script"
-    
-    # 下载并执行官方安装脚本
+
+    # 安全下载并执行官方安装脚本
     local install_script_url="https://get.hy2.sh/"
-    local temp_script="/tmp/hysteria2_install.sh"
-    
-    log_info "下载官方安装脚本..."
-    if ! curl -fsSL "$install_script_url" -o "$temp_script"; then
-        log_error "下载安装脚本失败"
-        return 1
+    local temp_script
+    temp_script=$(mktemp)
+    chmod 600 "$temp_script"  # 设置安全权限
+
+    # 设置清理陷阱
+    trap 'rm -f "$temp_script"' EXIT
+
+    log_info "安全下载官方安装脚本..."
+
+    # 使用安全下载（如果可用）
+    if command -v download_script_secure >/dev/null 2>&1; then
+        if ! download_script_secure "$install_script_url" "$temp_script"; then
+            log_error "安全下载安装脚本失败"
+            return 1
+        fi
+    else
+        # 基础安全下载
+        if ! curl --silent --show-error --fail --location \
+                  --max-time 30 --max-filesize 10485760 \
+                  --proto "=https" --tlsv1.2 \
+                  "$install_script_url" -o "$temp_script"; then
+            log_error "下载安装脚本失败"
+            return 1
+        fi
+
+        # 验证脚本内容
+        if [[ ! -s "$temp_script" ]]; then
+            log_error "安装脚本为空"
+            return 1
+        fi
+
+        # 基本语法检查
+        if ! bash -n "$temp_script"; then
+            log_error "安装脚本语法错误"
+            return 1
+        fi
+
+        # 检查危险命令
+        if grep -qE "rm -rf /|dd if=|mkfs|fdisk" "$temp_script"; then
+            log_error "安装脚本包含危险命令"
+            return 1
+        fi
     fi
-    
-    # 验证脚本内容（基本检查）
-    if [[ ! -s "$temp_script" ]]; then
-        log_error "安装脚本为空"
-        rm -f "$temp_script"
-        return 1
-    fi
-    
+
     # 执行安装脚本
     log_info "执行安装脚本..."
-    if bash "$temp_script" --version latest; then
+    if timeout 300 bash "$temp_script" --version latest; then
         log_success "Hysteria2 安装成功"
-        rm -f "$temp_script"
         return 0
     else
         log_error "Hysteria2 安装失败"
-        rm -f "$temp_script"
         return 1
     fi
 }
