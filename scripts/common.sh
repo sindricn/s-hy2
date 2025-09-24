@@ -6,26 +6,38 @@
 # 严格错误处理
 set -euo pipefail
 
-# 全局变量
-readonly SCRIPT_NAME="${0##*/}"
-readonly LOG_DIR="/var/log/s-hy2"
-readonly LOG_FILE="$LOG_DIR/s-hy2.log"
-readonly PID_FILE="/var/run/s-hy2.pid"
+# 全局变量 (防止重复定义)
+if [[ -z "${SCRIPT_NAME:-}" ]]; then
+    readonly SCRIPT_NAME="${0##*/}"
+fi
+if [[ -z "${LOG_DIR:-}" ]]; then
+    readonly LOG_DIR="/var/log/s-hy2"
+fi
+if [[ -z "${LOG_FILE:-}" ]]; then
+    readonly LOG_FILE="$LOG_DIR/s-hy2.log"
+fi
+if [[ -z "${PID_FILE:-}" ]]; then
+    readonly PID_FILE="/var/run/s-hy2.pid"
+fi
 
-# 颜色定义
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m'
+# 颜色定义 (防止与主脚本冲突)
+if [[ -z "${RED:-}" ]]; then
+    readonly RED='\033[0;31m'
+    readonly GREEN='\033[0;32m'
+    readonly YELLOW='\033[1;33m'
+    readonly BLUE='\033[0;34m'
+    readonly CYAN='\033[0;36m'
+    readonly NC='\033[0m'
+fi
 
-# 日志级别
-readonly LOG_LEVEL_DEBUG=0
-readonly LOG_LEVEL_INFO=1
-readonly LOG_LEVEL_WARN=2
-readonly LOG_LEVEL_ERROR=3
-readonly LOG_LEVEL_FATAL=4
+# 日志级别 (防止重复定义)
+if [[ -z "${LOG_LEVEL_DEBUG:-}" ]]; then
+    readonly LOG_LEVEL_DEBUG=0
+    readonly LOG_LEVEL_INFO=1
+    readonly LOG_LEVEL_WARN=2
+    readonly LOG_LEVEL_ERROR=3
+    readonly LOG_LEVEL_FATAL=4
+fi
 
 # 当前日志级别 (默认为 INFO)
 LOG_LEVEL=${LOG_LEVEL:-$LOG_LEVEL_INFO}
