@@ -18,7 +18,8 @@
       "Read(//c//**)",
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(cp:*)",
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "WebFetch(domain:v2.hysteria.network)"
     ],
     "deny": []
   }

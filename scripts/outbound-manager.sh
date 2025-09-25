@@ -495,19 +495,19 @@ EOF
                 ;;
         esac
 
-        # 检查并添加ACL规则以使用新的出站规则
+        # 检查并处理ACL规则
         echo -e "${BLUE}[INFO]${NC} 检查ACL路由规则"
         if ! grep -q "^[[:space:]]*acl:" "$temp_file" 2>/dev/null; then
-            echo -e "${BLUE}[INFO]${NC} 添加ACL规则以使用新的出站规则"
+            echo -e "${BLUE}[INFO]${NC} 添加基本ACL规则"
             cat >> "$temp_file" << EOF
 
 # ACL规则 - 路由配置
-acl: |
-  # 使用新增的出站规则 $name
-  $name(geosite:cn)
-  # 其他流量直连
-  direct(all)
+acl:
+  - $name(all)  # 所有流量使用新增的出站规则
 EOF
+        else
+            echo -e "${YELLOW}[WARN]${NC} 检测到现有ACL规则"
+            echo -e "${YELLOW}[WARN]${NC} 请手动在ACL中添加: $name(域名或规则)"
         fi
 
     else
@@ -524,9 +524,8 @@ outbounds:
       mode: auto
 
 # ACL规则 - 路由配置
-acl: |
-  # 使用 $name 进行直连
-  $name(all)
+acl:
+  - $name(all)  # 所有流量通过此规则直连
 EOF
                 ;;
             "socks5")
@@ -540,9 +539,8 @@ outbounds:
       addr: "${SOCKS5_ADDR:-127.0.0.1:1080}"
 
 # ACL规则 - 路由配置
-acl: |
-  # 使用 $name 代理流量
-  $name(all)
+acl:
+  - $name(all)  # 所有流量通过此规则代理
 EOF
                 ;;
         esac
