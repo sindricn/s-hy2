@@ -14,7 +14,10 @@
       "Bash(done)",
       "Bash(for:*)",
       "Bash(do bash -n \"$script\")",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Read(//c//**)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

@@ -138,28 +138,20 @@ view_current_outbound() {
     echo -e "${BLUE}=== 当前出站配置 ===${NC}"
     echo ""
 
-    # 检查是否有出站配置 - 改进的匹配模式
-    if grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
+    # 检查是否有出站配置
+    if grep -q "^outbounds:" "$HYSTERIA_CONFIG"; then
         echo -e "${GREEN}出站规则：${NC}"
-        # 使用更精确的sed匹配，支持缩进
-        sed -n '/^[[:space:]]*outbounds:/,/^[[:space:]]*[a-zA-Z]/p' "$HYSTERIA_CONFIG" | sed '$d'
-        echo ""
-
-        # 显示出站规则统计
-        local outbound_count
-        outbound_count=$(grep -c "^[[:space:]]*-[[:space:]]*name:" "$HYSTERIA_CONFIG" || echo "0")
-        echo -e "${CYAN}共找到 $outbound_count 个出站规则${NC}"
+        sed -n '/^outbounds:/,/^[^[:space:]]/p' "$HYSTERIA_CONFIG" | sed '$d'
         echo ""
     else
         echo -e "${YELLOW}当前配置中没有出站规则（使用默认直连）${NC}"
         echo ""
     fi
 
-    # 检查是否有 ACL 配置 - 改进的匹配模式
-    if grep -q "^[[:space:]]*acl:" "$HYSTERIA_CONFIG"; then
+    # 检查是否有 ACL 配置
+    if grep -q "^acl:" "$HYSTERIA_CONFIG"; then
         echo -e "${GREEN}ACL 规则：${NC}"
-        # 支持缩进的ACL配置显示
-        sed -n '/^[[:space:]]*acl:/,/^[[:space:]]*[a-zA-Z]/p' "$HYSTERIA_CONFIG" | sed '$d'
+        sed -n '/^acl:/,/^[^[:space:]]/p' "$HYSTERIA_CONFIG" | sed '$d'
     else
         echo -e "${YELLOW}当前配置中没有 ACL 规则（使用默认路由）${NC}"
     fi
@@ -423,98 +415,7 @@ apply_outbound_config() {
     fi
 }
 
-# 创建安全的临时文件
-create_temp_config() {
-    local temp_config
-    temp_config=$(mktemp -t hysteria_config_XXXXXX.yaml) || {
-        log_error "无法创建临时文件"
-        return 1
-    }
-
-    # 设置适当权限
-    chmod 600 "$temp_config"
-    echo "$temp_config"
-}
-
-# 智能合并outbounds配置
-merge_outbound_config() {
-    local config_file="$1" name="$2" type="$3"
-
-    # 检查是否已存在outbounds节点
-    if grep -q "^[[:space:]]*outbounds:" "$config_file"; then
-        log_info "检测到现有outbounds配置，添加到现有列表"
-        add_to_existing_outbounds "$config_file" "$name" "$type"
-    else
-        log_info "未检测到outbounds配置，创建新的outbounds节点"
-        add_new_outbounds_section "$config_file" "$name" "$type"
-    fi
-}
-
-# 添加到现有outbounds列表
-add_to_existing_outbounds() {
-    local config_file="$1" name="$2" type="$3"
-
-    case $type in
-        "direct")
-            # 在outbounds节点下添加新项
-            cat >> "$config_file" << EOF
-
-# 新增出站规则 - $name (Direct)
-  - name: $name
-    type: direct
-    direct:
-      mode: auto
-EOF
-            if [[ -n "${DIRECT_INTERFACE:-}" ]]; then
-                echo "      bindDevice: \"$DIRECT_INTERFACE\"" >> "$config_file"
-            fi
-            if [[ -n "${DIRECT_IPV4:-}" ]]; then
-                echo "      bindIPv4: \"$DIRECT_IPV4\"" >> "$config_file"
-            fi
-            if [[ -n "${DIRECT_IPV6:-}" ]]; then
-                echo "      bindIPv6: \"$DIRECT_IPV6\"" >> "$config_file"
-            fi
-            ;;
-        "socks5")
-            cat >> "$config_file" << EOF
-
-# 新增出站规则 - $name (SOCKS5)
-  - name: $name
-    type: socks5
-    socks5:
-      addr: "${SOCKS5_ADDR:-proxy.example.com:1080}"
-EOF
-            if [[ -n "${SOCKS5_USERNAME:-}" ]]; then
-                echo "      username: \"$SOCKS5_USERNAME\"" >> "$config_file"
-                echo "      password: \"$SOCKS5_PASSWORD\"" >> "$config_file"
-            fi
-            ;;
-        "http")
-            cat >> "$config_file" << EOF
-
-# 新增出站规则 - $name (HTTP)
-  - name: $name
-    type: http
-    http:
-      url: "${HTTP_URL:-http://proxy.example.com:8080}"
-EOF
-            if [[ -n "${HTTP_INSECURE:-}" ]]; then
-                echo "      insecure: $HTTP_INSECURE" >> "$config_file"
-            fi
-            ;;
-    esac
-}
-
-# 创建新的outbounds节点
-add_new_outbounds_section() {
-    local config_file="$1" name="$2" type="$3"
-
-    echo "" >> "$config_file"
-    echo "# 出站规则配置" >> "$config_file"
-    generate_direct_yaml_config "$name" >> "$config_file"
-}
-
-# 实际应用配置到文件的函数 - 改进版
+# 实际应用配置到文件的函数
 apply_outbound_to_config() {
     local name="$1" type="$2"
 
@@ -524,62 +425,42 @@ apply_outbound_to_config() {
         return 1
     fi
 
-    # 创建安全的临时文件
-    local temp_config
-    temp_config=$(create_temp_config) || return 1
+    # 创建临时文件
+    local temp_config="/tmp/hysteria_temp_config.yaml"
+    cp "$HYSTERIA_CONFIG" "$temp_config"
 
-    # 复制原配置并检查结果
-    if ! cp "$HYSTERIA_CONFIG" "$temp_config"; then
-        log_error "无法复制配置文件到临时位置"
-        rm -f "$temp_config"
-        return 1
-    fi
-
-    # 创建配置备份
-    local backup_file
-    backup_file=$(mktemp -t hysteria_backup_XXXXXX.yaml)
-    cp "$HYSTERIA_CONFIG" "$backup_file"
-
-    # 智能合并配置
+    # 根据类型生成配置内容
+    local outbound_config=""
     case $type in
-        "direct"|"socks5"|"http")
-            merge_outbound_config "$temp_config" "$name" "$type"
+        "direct")
+            generate_direct_yaml_config "$name" >> "$temp_config"
+            ;;
+        "socks5")
+            generate_socks5_yaml_config "$name" >> "$temp_config"
+            ;;
+        "http")
+            generate_http_yaml_config "$name" >> "$temp_config"
             ;;
         *)
             log_error "不支持的出站类型: $type"
-            rm -f "$temp_config" "$backup_file"
+            rm -f "$temp_config"
             return 1
             ;;
     esac
 
     # 验证配置文件语法（如果hysteria可用）
     if command -v hysteria >/dev/null 2>&1; then
-        local validation_output="/tmp/hysteria_validation_$$.log"
-        if ! hysteria check-config -c "$temp_config" 2>"$validation_output"; then
+        if ! hysteria check-config -c "$temp_config" >/dev/null 2>&1; then
             log_error "配置文件语法验证失败"
-            log_error "详细错误信息:"
-            while IFS= read -r line; do
-                log_error "  $line"
-            done < "$validation_output"
-            rm -f "$temp_config" "$backup_file" "$validation_output"
+            rm -f "$temp_config"
             return 1
         fi
-        rm -f "$validation_output"
-    else
-        log_warn "Hysteria2 未安装，跳过配置语法验证"
     fi
 
-    # 原子性替换配置文件
-    if mv "$temp_config" "$HYSTERIA_CONFIG"; then
-        log_success "配置已成功应用到: $HYSTERIA_CONFIG"
-        rm -f "$backup_file"
-        return 0
-    else
-        log_error "配置应用失败，正在恢复备份"
-        mv "$backup_file" "$HYSTERIA_CONFIG"
-        rm -f "$temp_config"
-        return 1
-    fi
+    # 应用新配置
+    mv "$temp_config" "$HYSTERIA_CONFIG"
+    log_info "配置已应用到: $HYSTERIA_CONFIG"
+    return 0
 }
 
 # 生成 Direct 类型的 YAML 配置
