@@ -1204,6 +1204,7 @@ show_client_configs() {
                 echo "• 将上方配置保存为 config.yaml 文件"
                 echo "• 使用 hysteria2 官方客户端加载配置文件"
                 echo ""
+                wait_for_user
                 ;;
             2)
                 clear
@@ -1216,6 +1217,7 @@ show_client_configs() {
                 echo "• 将上方配置添加到 Clash 配置文件的 proxies 部分"
                 echo "• 推荐客户端：Clash Verge Rev, ClashX Pro"
                 echo ""
+                wait_for_user
                 ;;
             3)
                 clear
@@ -1228,6 +1230,7 @@ show_client_configs() {
                 echo "• 适用于：SingBox Android/iOS 客户端"
                 echo "• 特点：无 inbounds 配置，避免端口冲突"
                 echo ""
+                wait_for_user
                 ;;
             4)
                 clear
@@ -1240,6 +1243,7 @@ show_client_configs() {
                 echo "• 适用于：SingBox 桌面客户端"
                 echo "• 特点：包含 inbounds 配置，提供本地代理端口"
                 echo ""
+                wait_for_user
                 ;;
             5)
                 save_all_configs_to_file "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"

@@ -228,6 +228,11 @@ add_direct_outbound() {
         read -p "IPv6 地址 (可选): " ipv6
     fi
 
+    # 保存配置参数供后续使用
+    export DIRECT_INTERFACE="$interface"
+    export DIRECT_IPV4="$ipv4"
+    export DIRECT_IPV6="$ipv6"
+
     # 生成配置
     generate_direct_config "$name" "$interface" "$ipv4" "$ipv6"
 }
@@ -258,6 +263,11 @@ add_socks5_outbound() {
         read -s -p "密码: " password
         echo ""
     fi
+
+    # 保存配置参数供后续使用
+    export SOCKS5_ADDR="$addr"
+    export SOCKS5_USERNAME="$username"
+    export SOCKS5_PASSWORD="$password"
 
     # 生成配置
     generate_socks5_config "$name" "$addr" "$username" "$password"
@@ -297,6 +307,10 @@ add_http_outbound() {
         log_error "代理 URL 不能为空"
         return 1
     fi
+
+    # 保存配置参数供后续使用
+    export HTTP_URL="$url"
+    export HTTP_INSECURE="$insecure"
 
     # 生成配置
     generate_http_config "$name" "$url" "$insecure"
@@ -379,17 +393,131 @@ apply_outbound_config() {
 
     if [[ $apply_config =~ ^[Yy]$ ]]; then
         backup_current_config
-        # 这里需要实际的配置应用逻辑
-        log_success "出站配置已添加：$name ($type)"
 
-        # 询问是否重启服务
-        echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
-        read -r restart_service
+        # 实际的配置应用逻辑
+        if apply_outbound_to_config "$name" "$type"; then
+            log_success "出站配置已添加：$name ($type)"
 
-        if [[ $restart_service =~ ^[Yy]$ ]]; then
-            systemctl restart hysteria-server
-            log_success "服务已重启"
+            # 询问是否重启服务
+            echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
+            read -r restart_service
+
+            if [[ $restart_service =~ ^[Yy]$ ]]; then
+                if systemctl restart hysteria-server; then
+                    log_success "服务已重启"
+                else
+                    log_error "服务重启失败"
+                fi
+            fi
+        else
+            log_error "配置应用失败"
         fi
+    fi
+}
+
+# 实际应用配置到文件的函数
+apply_outbound_to_config() {
+    local name="$1" type="$2"
+
+    # 检查配置文件是否存在
+    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
+        log_error "Hysteria2 配置文件不存在: $HYSTERIA_CONFIG"
+        return 1
+    fi
+
+    # 创建临时文件
+    local temp_config="/tmp/hysteria_temp_config.yaml"
+    cp "$HYSTERIA_CONFIG" "$temp_config"
+
+    # 根据类型生成配置内容
+    local outbound_config=""
+    case $type in
+        "direct")
+            generate_direct_yaml_config "$name" >> "$temp_config"
+            ;;
+        "socks5")
+            generate_socks5_yaml_config "$name" >> "$temp_config"
+            ;;
+        "http")
+            generate_http_yaml_config "$name" >> "$temp_config"
+            ;;
+        *)
+            log_error "不支持的出站类型: $type"
+            rm -f "$temp_config"
+            return 1
+            ;;
+    esac
+
+    # 验证配置文件语法（如果hysteria可用）
+    if command -v hysteria >/dev/null 2>&1; then
+        if ! hysteria check-config -c "$temp_config" >/dev/null 2>&1; then
+            log_error "配置文件语法验证失败"
+            rm -f "$temp_config"
+            return 1
+        fi
+    fi
+
+    # 应用新配置
+    mv "$temp_config" "$HYSTERIA_CONFIG"
+    log_info "配置已应用到: $HYSTERIA_CONFIG"
+    return 0
+}
+
+# 生成 Direct 类型的 YAML 配置
+generate_direct_yaml_config() {
+    local name="$1"
+
+    echo ""
+    echo "# 出站规则 - $name (Direct)"
+    echo "outbounds:"
+    echo "  - name: $name"
+    echo "    type: direct"
+    echo "    direct:"
+    echo "      mode: auto"
+
+    if [[ -n "${DIRECT_INTERFACE:-}" ]]; then
+        echo "      bindDevice: \"$DIRECT_INTERFACE\""
+    fi
+    if [[ -n "${DIRECT_IPV4:-}" ]]; then
+        echo "      bindIPv4: \"$DIRECT_IPV4\""
+    fi
+    if [[ -n "${DIRECT_IPV6:-}" ]]; then
+        echo "      bindIPv6: \"$DIRECT_IPV6\""
+    fi
+}
+
+# 生成 SOCKS5 类型的 YAML 配置
+generate_socks5_yaml_config() {
+    local name="$1"
+
+    echo ""
+    echo "# 出站规则 - $name (SOCKS5)"
+    echo "outbounds:"
+    echo "  - name: $name"
+    echo "    type: socks5"
+    echo "    socks5:"
+    echo "      addr: \"${SOCKS5_ADDR:-proxy.example.com:1080}\""
+
+    if [[ -n "${SOCKS5_USERNAME:-}" ]]; then
+        echo "      username: \"$SOCKS5_USERNAME\""
+        echo "      password: \"$SOCKS5_PASSWORD\""
+    fi
+}
+
+# 生成 HTTP 类型的 YAML 配置
+generate_http_yaml_config() {
+    local name="$1"
+
+    echo ""
+    echo "# 出站规则 - $name (HTTP)"
+    echo "outbounds:"
+    echo "  - name: $name"
+    echo "    type: http"
+    echo "    http:"
+    echo "      url: \"${HTTP_URL:-http://proxy.example.com:8080}\""
+
+    if [[ -n "${HTTP_INSECURE:-}" ]]; then
+        echo "      insecure: $HTTP_INSECURE"
     fi
 }
 
@@ -465,8 +593,247 @@ apply_template() {
 test_outbound_connectivity() {
     log_info "测试出站连通性"
 
-    # 这里实现连通性测试逻辑
-    echo "连通性测试功能开发中..."
+    echo -e "${BLUE}=== 出站连通性测试 ===${NC}"
+    echo ""
+
+    # 检查是否有出站配置
+    if ! grep -q "^outbounds:" "$HYSTERIA_CONFIG"; then
+        echo -e "${YELLOW}当前没有配置出站规则，无法测试${NC}"
+        wait_for_user
+        return
+    fi
+
+    # 列出可用的出站规则
+    echo -e "${GREEN}当前出站规则：${NC}"
+    grep -A 2 "name:" "$HYSTERIA_CONFIG" | grep "name:" | sed 's/.*name: */- /' | nl
+    echo ""
+
+    echo "测试选项："
+    echo "1. 测试直连连通性"
+    echo "2. 测试域名解析"
+    echo "3. 测试网络延迟"
+    echo "4. 测试端口连通性"
+    echo ""
+
+    read -p "请选择测试类型 [1-4]: " test_choice
+
+    case $test_choice in
+        1) test_direct_connectivity ;;
+        2) test_dns_resolution ;;
+        3) test_network_latency ;;
+        4) test_port_connectivity ;;
+        *)
+            log_error "无效选择"
+            ;;
+    esac
+
+    wait_for_user
+}
+
+# 测试直连连通性
+test_direct_connectivity() {
+    echo -e "${CYAN}=== 直连连通性测试 ===${NC}"
+    echo ""
+
+    local test_urls=("8.8.8.8" "1.1.1.1" "google.com" "baidu.com")
+
+    for url in "${test_urls[@]}"; do
+        echo -n "测试连接到 $url... "
+        if ping -c 1 -W 5 "$url" >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ 成功${NC}"
+        else
+            echo -e "${RED}✗ 失败${NC}"
+        fi
+    done
+    echo ""
+}
+
+# 测试域名解析
+test_dns_resolution() {
+    echo -e "${CYAN}=== DNS 解析测试 ===${NC}"
+    echo ""
+
+    local test_domains=("google.com" "github.com" "baidu.com" "qq.com")
+
+    for domain in "${test_domains[@]}"; do
+        echo -n "解析域名 $domain... "
+        if nslookup "$domain" >/dev/null 2>&1; then
+            local ip=$(nslookup "$domain" 2>/dev/null | grep "Address:" | tail -n1 | awk '{print $2}')
+            echo -e "${GREEN}✓ $ip${NC}"
+        else
+            echo -e "${RED}✗ 解析失败${NC}"
+        fi
+    done
+    echo ""
+}
+
+# 测试网络延迟
+test_network_latency() {
+    echo -e "${CYAN}=== 网络延迟测试 ===${NC}"
+    echo ""
+
+    local test_servers=("8.8.8.8" "1.1.1.1" "baidu.com")
+
+    for server in "${test_servers[@]}"; do
+        echo -n "测试到 $server 的延迟... "
+        local latency=$(ping -c 3 -W 5 "$server" 2>/dev/null | tail -1 | awk -F '/' '{print $5}' 2>/dev/null)
+        if [[ -n "$latency" ]]; then
+            echo -e "${GREEN}${latency}ms${NC}"
+        else
+            echo -e "${RED}✗ 超时${NC}"
+        fi
+    done
+    echo ""
+}
+
+# 测试端口连通性
+test_port_connectivity() {
+    echo -e "${CYAN}=== 端口连通性测试 ===${NC}"
+    echo ""
+
+    read -p "请输入要测试的主机地址: " host
+    read -p "请输入端口号: " port
+
+    if [[ -z "$host" || -z "$port" ]]; then
+        log_error "主机地址和端口不能为空"
+        return
+    fi
+
+    echo -n "测试连接到 $host:$port... "
+    if timeout 10 bash -c "</dev/tcp/$host/$port" 2>/dev/null; then
+        echo -e "${GREEN}✓ 端口开放${NC}"
+    else
+        echo -e "${RED}✗ 端口关闭或无法访问${NC}"
+    fi
+    echo ""
+}
+
+# 修改现有出站配置
+modify_outbound_config() {
+    log_info "修改现有出站配置"
+
+    echo -e "${BLUE}=== 修改出站配置 ===${NC}"
+    echo ""
+
+    # 检查是否有出站配置
+    if ! grep -q "^outbounds:" "$HYSTERIA_CONFIG"; then
+        echo -e "${YELLOW}当前没有出站配置可修改${NC}"
+        echo "请先添加出站规则"
+        wait_for_user
+        return
+    fi
+
+    # 列出现有的出站配置
+    echo -e "${GREEN}当前出站规则：${NC}"
+    local outbound_names=($(grep -A 2 "name:" "$HYSTERIA_CONFIG" | grep "name:" | sed 's/.*name: *//' | tr -d '"'))
+
+    if [[ ${#outbound_names[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}没有找到出站规则名称${NC}"
+        wait_for_user
+        return
+    fi
+
+    for i in "${!outbound_names[@]}"; do
+        echo "$((i+1)). ${outbound_names[$i]}"
+    done
+    echo ""
+
+    read -p "请选择要修改的出站规则 [1-${#outbound_names[@]}]: " choice
+
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#outbound_names[@]} ]]; then
+        log_error "无效选择"
+        return
+    fi
+
+    local selected_outbound="${outbound_names[$((choice-1))]}"
+
+    echo -e "${BLUE}修改选项：${NC}"
+    echo "1. 删除此出站规则"
+    echo "2. 替换为新的出站规则"
+    echo "3. 查看详细配置"
+    echo ""
+
+    read -p "请选择操作 [1-3]: " modify_choice
+
+    case $modify_choice in
+        1) delete_outbound_rule "$selected_outbound" ;;
+        2) replace_outbound_rule "$selected_outbound" ;;
+        3) show_outbound_details "$selected_outbound" ;;
+        *)
+            log_error "无效选择"
+            ;;
+    esac
+}
+
+# 删除出站规则
+delete_outbound_rule() {
+    local rule_name="$1"
+
+    echo -e "${RED}警告: 即将删除出站规则 '$rule_name'${NC}"
+    echo -n "确认删除？ [y/N]: "
+    read -r confirm
+
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        log_info "取消删除"
+        return
+    fi
+
+    backup_current_config
+
+    # 创建临时文件，移除指定的出站规则
+    local temp_config="/tmp/hysteria_temp_modify.yaml"
+
+    # 使用sed删除指定的出站规则块
+    sed "/- name: $rule_name/,/^  - name:/{ /^  - name:/!d; }" "$HYSTERIA_CONFIG" > "$temp_config"
+
+    # 检查删除结果
+    if ! grep -q "name: $rule_name" "$temp_config"; then
+        mv "$temp_config" "$HYSTERIA_CONFIG"
+        log_success "出站规则 '$rule_name' 已删除"
+
+        # 询问是否重启服务
+        echo "是否重启 Hysteria2 服务？ [y/N]"
+        read -r restart_service
+        if [[ $restart_service =~ ^[Yy]$ ]]; then
+            systemctl restart hysteria-server
+            log_success "服务已重启"
+        fi
+    else
+        rm -f "$temp_config"
+        log_error "删除出站规则失败"
+    fi
+
+    wait_for_user
+}
+
+# 替换出站规则
+replace_outbound_rule() {
+    local old_rule_name="$1"
+
+    echo -e "${BLUE}=== 替换出站规则 '$old_rule_name' ===${NC}"
+    echo ""
+    echo "将创建新的出站规则来替换现有的规则"
+    echo ""
+
+    # 先删除旧规则
+    delete_outbound_rule "$old_rule_name"
+
+    # 添加新规则
+    echo -e "${GREEN}现在添加新的出站规则：${NC}"
+    add_outbound_rule
+}
+
+# 显示出站规则详细信息
+show_outbound_details() {
+    local rule_name="$1"
+
+    echo -e "${CYAN}=== 出站规则 '$rule_name' 详细信息 ===${NC}"
+    echo ""
+
+    # 提取并显示指定规则的配置
+    sed -n "/- name: $rule_name/,/^  - name:/p" "$HYSTERIA_CONFIG" | sed '$d'
+
+    echo ""
     wait_for_user
 }
 
@@ -546,10 +913,7 @@ manage_outbound() {
             1) view_current_outbound ;;
             2) add_outbound_rule ;;
             3) use_template_config ;;
-            4)
-                log_info "修改配置功能开发中"
-                wait_for_user
-                ;;
+            4) modify_outbound_config ;;
             5) test_outbound_connectivity ;;
             6) backup_restore_config ;;
             0)
