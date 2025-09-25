@@ -403,7 +403,8 @@ apply_outbound_config() {
         echo -e "${BLUE}[INFO]${NC} 开始应用出站配置: $name ($type)"
 
         # 使用极简稳定的方法
-        if apply_outbound_simple "$name" "$type"; then
+        # 使用修复脚本进行完整配置
+        if bash "$(dirname "${BASH_SOURCE[0]}")/outbound-fix.sh" "$name" "$type"; then
             echo -e "${GREEN}[SUCCESS]${NC} 出站配置已添加：$name ($type)"
 
             # 询问是否重启服务
