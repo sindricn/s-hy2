@@ -423,16 +423,42 @@ apply_outbound_config() {
     fi
 }
 
-# 创建安全的临时文件
+# 创建安全的临时文件 - 兼容性改进版
 create_temp_config() {
     local temp_config
-    temp_config=$(mktemp -t hysteria_config_XXXXXX.yaml) || {
-        log_error "无法创建临时文件"
-        return 1
-    }
+
+    # 尝试不同的mktemp选项以确保兼容性
+    if command -v mktemp >/dev/null 2>&1; then
+        # 尝试标准方式
+        if temp_config=$(mktemp -t hysteria_config_XXXXXX.yaml 2>/dev/null); then
+            log_debug "使用mktemp -t创建临时文件: $temp_config"
+        # 备选方式1: 不使用-t选项
+        elif temp_config=$(mktemp /tmp/hysteria_config_XXXXXX.yaml 2>/dev/null); then
+            log_debug "使用mktemp备选方式创建临时文件: $temp_config"
+        # 备选方式2: 手动创建
+        else
+            temp_config="/tmp/hysteria_config_$$_$(date +%s).yaml"
+            if ! touch "$temp_config" 2>/dev/null; then
+                log_error "无法创建临时文件: $temp_config"
+                return 1
+            fi
+            log_debug "手动创建临时文件: $temp_config"
+        fi
+    else
+        # 如果没有mktemp命令，手动创建
+        temp_config="/tmp/hysteria_config_$$_$(date +%s).yaml"
+        if ! touch "$temp_config" 2>/dev/null; then
+            log_error "无法创建临时文件: $temp_config"
+            return 1
+        fi
+        log_debug "手动创建临时文件（无mktemp）: $temp_config"
+    fi
 
     # 设置适当权限
-    chmod 600 "$temp_config"
+    if ! chmod 600 "$temp_config" 2>/dev/null; then
+        log_warn "无法设置临时文件权限，继续执行"
+    fi
+
     echo "$temp_config"
 }
 
@@ -526,19 +552,35 @@ apply_outbound_to_config() {
 
     # 创建安全的临时文件
     local temp_config
-    temp_config=$(create_temp_config) || return 1
+    log_info "开始创建临时文件..."
+    temp_config=$(create_temp_config)
+    if [[ $? -ne 0 ]] || [[ -z "$temp_config" ]]; then
+        log_error "创建临时文件失败"
+        return 1
+    fi
+    log_info "临时文件已创建: $temp_config"
 
     # 复制原配置并检查结果
+    log_info "复制配置文件到临时位置..."
     if ! cp "$HYSTERIA_CONFIG" "$temp_config"; then
         log_error "无法复制配置文件到临时位置"
+        log_error "源文件: $HYSTERIA_CONFIG"
+        log_error "目标文件: $temp_config"
         rm -f "$temp_config"
         return 1
     fi
+    log_info "配置文件复制成功"
 
     # 创建配置备份
     local backup_file
-    backup_file=$(mktemp -t hysteria_backup_XXXXXX.yaml)
-    cp "$HYSTERIA_CONFIG" "$backup_file"
+    log_info "创建配置备份..."
+    backup_file="/tmp/hysteria_backup_$$_$(date +%s).yaml"
+    if ! cp "$HYSTERIA_CONFIG" "$backup_file"; then
+        log_error "无法创建配置备份"
+        rm -f "$temp_config"
+        return 1
+    fi
+    log_info "配置备份已创建: $backup_file"
 
     # 智能合并配置
     case $type in
