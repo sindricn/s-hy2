@@ -549,13 +549,22 @@ EOF
         esac
     fi
 
-    # 验证配置语法（可选）
+    # 验证配置语法（详细诊断）
+    echo -e "${BLUE}[INFO]${NC} 验证配置语法"
     if command -v hysteria >/dev/null 2>&1; then
-        echo -e "${BLUE}[INFO]${NC} 验证配置语法"
-        if hysteria check-config -c "$temp_file" >/dev/null 2>&1; then
+        local validation_output
+        validation_output=$(hysteria check-config -c "$temp_file" 2>&1)
+        local validation_result=$?
+
+        if [[ $validation_result -eq 0 ]]; then
             echo -e "${GREEN}[SUCCESS]${NC} 配置语法验证通过"
         else
             echo -e "${YELLOW}[WARN]${NC} 配置语法验证失败，但继续执行"
+            echo -e "${YELLOW}验证错误详情:${NC}"
+            echo "----------------------------------------"
+            echo "$validation_output"
+            echo "----------------------------------------"
+            echo -e "${YELLOW}注意: 这可能是由于当前环境缺少某些依赖文件导致的${NC}"
         fi
     else
         echo -e "${YELLOW}[WARN]${NC} 未找到hysteria命令，跳过语法验证"
@@ -1117,22 +1126,33 @@ delete_outbound_rule() {
     # 创建临时文件
     local temp_config="/tmp/hysteria_delete_temp_$(date +%s).yaml"
 
-    # 使用更简单的方法：逐行处理，跳过要删除的规则块
+    # 改进的删除方法：包含注释删除
     local in_target_rule=false
     local line_num=0
+    local skip_next_comment=false
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
 
+        # 检查是否是目标规则的注释行（在规则前）
+        if [[ "$line" =~ ^[[:space:]]*#.*${rule_name}.* ]]; then
+            skip_next_comment=true
+            continue
+        fi
+
         # 检查是否是要删除的规则的开始
         if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
             in_target_rule=true
-            echo -e "${BLUE}[INFO]${NC} 找到要删除的规则在第 $line_num 行"
             continue
         fi
 
         # 检查是否是下一个规则的开始（结束当前删除块）
         if [[ "$in_target_rule" == true ]] && [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]]; then
+            in_target_rule=false
+        fi
+
+        # 检查是否是空行或其他结构开始（也可能结束规则块）
+        if [[ "$in_target_rule" == true ]] && [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ direct:|socks5:|http: ]]; then
             in_target_rule=false
         fi
 

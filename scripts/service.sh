@@ -2,6 +2,14 @@
 
 # Hysteria2 服务管理脚本 - 简化版本
 
+# 定义颜色变量
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
 # 启动服务
 start_service() {
     echo -e "${BLUE}启动 Hysteria2 服务...${NC}"
@@ -147,6 +155,8 @@ manage_hysteria_service() {
         
         if [[ $choice -ne 0 ]]; then
             echo ""
+            echo -e "${YELLOW}按回车键继续...${NC}"
+            read -r
         fi
     done
 }
