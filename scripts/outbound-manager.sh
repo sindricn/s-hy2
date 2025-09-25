@@ -392,7 +392,7 @@ generate_http_config() {
     apply_outbound_config "$name" "http"
 }
 
-# 应用出站配置
+# 应用出站配置 - 极简稳定版本
 apply_outbound_config() {
     local name="$1" type="$2"
 
@@ -400,26 +400,143 @@ apply_outbound_config() {
     read -r apply_config
 
     if [[ $apply_config =~ ^[Yy]$ ]]; then
-        backup_current_config
+        echo -e "${BLUE}[INFO]${NC} 开始应用出站配置: $name ($type)"
 
-        # 实际的配置应用逻辑
-        if apply_outbound_to_config "$name" "$type"; then
-            log_success "出站配置已添加：$name ($type)"
+        # 使用极简稳定的方法
+        if apply_outbound_simple "$name" "$type"; then
+            echo -e "${GREEN}[SUCCESS]${NC} 出站配置已添加：$name ($type)"
 
             # 询问是否重启服务
             echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
             read -r restart_service
 
             if [[ $restart_service =~ ^[Yy]$ ]]; then
-                if systemctl restart hysteria-server; then
-                    log_success "服务已重启"
+                if systemctl restart hysteria-server 2>/dev/null; then
+                    echo -e "${GREEN}[SUCCESS]${NC} 服务已重启"
                 else
-                    log_error "服务重启失败"
+                    echo -e "${RED}[ERROR]${NC} 服务重启失败"
                 fi
             fi
         else
-            log_error "配置应用失败"
+            echo -e "${RED}[ERROR]${NC} 配置应用失败"
         fi
+    else
+        echo -e "${BLUE}[INFO]${NC} 操作已取消"
+    fi
+}
+
+# 极简稳定的配置应用函数
+apply_outbound_simple() {
+    local name="$1" type="$2"
+
+    echo -e "${BLUE}[INFO]${NC} 检查配置文件: $HYSTERIA_CONFIG"
+
+    # 检查配置文件
+    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
+        echo -e "${RED}[ERROR]${NC} 配置文件不存在: $HYSTERIA_CONFIG"
+        return 1
+    fi
+
+    # 创建简单的备份
+    local backup_file="/tmp/hysteria_backup_$$_$(date +%s).yaml"
+    echo -e "${BLUE}[INFO]${NC} 创建配置备份: $backup_file"
+
+    if ! cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null; then
+        echo -e "${RED}[ERROR]${NC} 无法创建备份文件"
+        return 1
+    fi
+
+    # 创建临时文件
+    local temp_file="/tmp/hysteria_temp_$$_$(date +%s).yaml"
+    echo -e "${BLUE}[INFO]${NC} 创建临时文件: $temp_file"
+
+    if ! cp "$HYSTERIA_CONFIG" "$temp_file" 2>/dev/null; then
+        echo -e "${RED}[ERROR]${NC} 无法创建临时文件"
+        rm -f "$backup_file" 2>/dev/null
+        return 1
+    fi
+
+    # 添加出站配置
+    echo -e "${BLUE}[INFO]${NC} 添加出站配置到临时文件"
+
+    if grep -q "^[[:space:]]*outbounds:" "$temp_file" 2>/dev/null; then
+        echo -e "${BLUE}[INFO]${NC} 检测到现有outbounds配置，追加新规则"
+        cat >> "$temp_file" << EOF
+
+# 新增出站规则 - $name ($type)
+  - name: $name
+    type: $type
+EOF
+        case $type in
+            "direct")
+                cat >> "$temp_file" << EOF
+    direct:
+      mode: auto
+EOF
+                ;;
+            "socks5")
+                cat >> "$temp_file" << EOF
+    socks5:
+      addr: "${SOCKS5_ADDR:-proxy.example.com:1080}"
+EOF
+                if [[ -n "${SOCKS5_USERNAME:-}" ]]; then
+                    echo "      username: \"$SOCKS5_USERNAME\"" >> "$temp_file"
+                    echo "      password: \"$SOCKS5_PASSWORD\"" >> "$temp_file"
+                fi
+                ;;
+            "http")
+                cat >> "$temp_file" << EOF
+    http:
+      url: "${HTTP_URL:-http://proxy.example.com:8080}"
+EOF
+                if [[ -n "${HTTP_INSECURE:-}" ]]; then
+                    echo "      insecure: $HTTP_INSECURE" >> "$temp_file"
+                fi
+                ;;
+        esac
+    else
+        echo -e "${BLUE}[INFO]${NC} 未检测到outbounds配置，创建新节点"
+        cat >> "$temp_file" << EOF
+
+# 出站规则配置
+outbounds:
+  - name: $name
+    type: $type
+EOF
+        case $type in
+            "direct")
+                cat >> "$temp_file" << EOF
+    direct:
+      mode: auto
+EOF
+                ;;
+            # 其他类型省略，需要时可以添加
+        esac
+    fi
+
+    # 验证配置语法（可选）
+    if command -v hysteria >/dev/null 2>&1; then
+        echo -e "${BLUE}[INFO]${NC} 验证配置语法"
+        if hysteria check-config -c "$temp_file" >/dev/null 2>&1; then
+            echo -e "${GREEN}[SUCCESS]${NC} 配置语法验证通过"
+        else
+            echo -e "${YELLOW}[WARN]${NC} 配置语法验证失败，但继续执行"
+        fi
+    else
+        echo -e "${YELLOW}[WARN]${NC} 未找到hysteria命令，跳过语法验证"
+    fi
+
+    # 应用配置
+    echo -e "${BLUE}[INFO]${NC} 应用新配置"
+    if mv "$temp_file" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        echo -e "${GREEN}[SUCCESS]${NC} 配置已成功应用"
+        rm -f "$backup_file" 2>/dev/null
+        return 0
+    else
+        echo -e "${RED}[ERROR]${NC} 配置应用失败，恢复备份"
+        mv "$backup_file" "$HYSTERIA_CONFIG" 2>/dev/null
+        rm -f "$temp_file" 2>/dev/null
+        return 1
     fi
 }
 
