@@ -503,7 +503,8 @@ EOF
 
 # ACL规则 - 路由配置
 acl:
-  - $name(all)  # 所有流量使用新增的出站规则
+  inline:
+    - $name(all)  # 所有流量使用新增的出站规则
 EOF
         else
             echo -e "${YELLOW}[WARN]${NC} 检测到现有ACL规则"
@@ -525,7 +526,8 @@ outbounds:
 
 # ACL规则 - 路由配置
 acl:
-  - $name(all)  # 所有流量通过此规则直连
+  inline:
+    - $name(all)  # 所有流量通过此规则直连
 EOF
                 ;;
             "socks5")
@@ -540,7 +542,8 @@ outbounds:
 
 # ACL规则 - 路由配置
 acl:
-  - $name(all)  # 所有流量通过此规则代理
+  inline:
+    - $name(all)  # 所有流量通过此规则代理
 EOF
                 ;;
         esac
@@ -927,7 +930,7 @@ test_outbound_connectivity() {
 
     # 列出可用的出站规则
     echo -e "${GREEN}当前出站规则：${NC}"
-    grep -A 2 "name:" "$HYSTERIA_CONFIG" | grep "name:" | sed 's/.*name: */- /' | nl
+    grep "^[[:space:]]*-[[:space:]]*name:" "$HYSTERIA_CONFIG" | sed 's/.*name:[[:space:]]*/- /' | nl
     echo ""
 
     echo "测试选项："
@@ -1047,7 +1050,7 @@ modify_outbound_config() {
 
     # 列出现有的出站配置
     echo -e "${GREEN}当前出站规则：${NC}"
-    local outbound_names=($(grep -A 2 "name:" "$HYSTERIA_CONFIG" | grep "name:" | sed 's/.*name: *//' | tr -d '"'))
+    local outbound_names=($(grep -A 1 "^[[:space:]]*-[[:space:]]*name:" "$HYSTERIA_CONFIG" | grep "name:" | sed 's/.*name:[[:space:]]*//' | tr -d '"'))
 
     if [[ ${#outbound_names[@]} -eq 0 ]]; then
         echo -e "${YELLOW}没有找到出站规则名称${NC}"
