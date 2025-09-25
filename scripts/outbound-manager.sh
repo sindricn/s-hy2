@@ -403,8 +403,7 @@ apply_outbound_config() {
         echo -e "${BLUE}[INFO]${NC} 开始应用出站配置: $name ($type)"
 
         # 使用极简稳定的方法
-        # 使用修复脚本进行完整配置
-        if bash "$(dirname "${BASH_SOURCE[0]}")/outbound-fix.sh" "$name" "$type"; then
+        if apply_outbound_simple "$name" "$type"; then
             echo -e "${GREEN}[SUCCESS]${NC} 出站配置已添加：$name ($type)"
 
             # 询问是否重启服务
@@ -495,23 +494,57 @@ EOF
                 fi
                 ;;
         esac
+
+        # 检查并添加ACL规则以使用新的出站规则
+        echo -e "${BLUE}[INFO]${NC} 检查ACL路由规则"
+        if ! grep -q "^[[:space:]]*acl:" "$temp_file" 2>/dev/null; then
+            echo -e "${BLUE}[INFO]${NC} 添加ACL规则以使用新的出站规则"
+            cat >> "$temp_file" << EOF
+
+# ACL规则 - 路由配置
+acl: |
+  # 使用新增的出站规则 $name
+  $name(geosite:cn)
+  # 其他流量直连
+  direct(all)
+EOF
+        fi
+
     else
         echo -e "${BLUE}[INFO]${NC} 未检测到outbounds配置，创建新节点"
-        cat >> "$temp_file" << EOF
+        case $type in
+            "direct")
+                cat >> "$temp_file" << EOF
 
 # 出站规则配置
 outbounds:
   - name: $name
-    type: $type
-EOF
-        case $type in
-            "direct")
-                cat >> "$temp_file" << EOF
+    type: direct
     direct:
       mode: auto
+
+# ACL规则 - 路由配置
+acl: |
+  # 使用 $name 进行直连
+  $name(all)
 EOF
                 ;;
-            # 其他类型省略，需要时可以添加
+            "socks5")
+                cat >> "$temp_file" << EOF
+
+# 出站规则配置
+outbounds:
+  - name: $name
+    type: socks5
+    socks5:
+      addr: "${SOCKS5_ADDR:-127.0.0.1:1080}"
+
+# ACL规则 - 路由配置
+acl: |
+  # 使用 $name 代理流量
+  $name(all)
+EOF
+                ;;
         esac
     fi
 
@@ -803,9 +836,21 @@ generate_http_yaml_config() {
 # 备份当前配置
 backup_current_config() {
     if [[ -f "$HYSTERIA_CONFIG" ]]; then
+        # 确保备份目录存在并且可写
+        if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+            # 如果无法创建备份目录，使用临时目录
+            BACKUP_DIR="/tmp/s-hy2-backup"
+            mkdir -p "$BACKUP_DIR" 2>/dev/null
+        fi
+
         local backup_file="$BACKUP_DIR/config-$(date +%Y%m%d_%H%M%S).yaml"
-        cp "$HYSTERIA_CONFIG" "$backup_file"
-        log_info "配置已备份到: $backup_file"
+        if cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null; then
+            log_info "配置已备份到: $backup_file"
+        else
+            log_warn "备份失败，将使用简单备份方式"
+            backup_file="/tmp/hysteria_backup_$(date +%s).yaml"
+            cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null || log_error "备份失败"
+        fi
     fi
 }
 
@@ -1048,41 +1093,86 @@ modify_outbound_config() {
 delete_outbound_rule() {
     local rule_name="$1"
 
-    echo -e "${RED}警告: 即将删除出站规则 '$rule_name'${NC}"
+    echo -e "${RED}[WARNING]${NC} 即将删除出站规则: $rule_name"
+    echo -e "${YELLOW}此操作不可逆，请确认操作${NC}"
     echo -n "确认删除？ [y/N]: "
     read -r confirm
 
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
-        log_info "取消删除"
+        echo -e "${BLUE}[INFO]${NC} 取消删除操作"
         return
     fi
 
-    backup_current_config
+    echo -e "${BLUE}[INFO]${NC} 开始删除出站规则: $rule_name"
 
-    # 创建临时文件，移除指定的出站规则
-    local temp_config="/tmp/hysteria_temp_modify.yaml"
+    # 创建简单备份
+    local backup_file="/tmp/hysteria_delete_backup_$(date +%s).yaml"
+    if ! cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null; then
+        echo -e "${RED}[ERROR]${NC} 无法创建备份，删除操作取消"
+        return 1
+    fi
+    echo -e "${BLUE}[INFO]${NC} 配置已备份到: $backup_file"
 
-    # 使用sed删除指定的出站规则块
-    sed "/- name: $rule_name/,/^  - name:/{ /^  - name:/!d; }" "$HYSTERIA_CONFIG" > "$temp_config"
+    # 创建临时文件
+    local temp_config="/tmp/hysteria_delete_temp_$(date +%s).yaml"
 
-    # 检查删除结果
-    if ! grep -q "name: $rule_name" "$temp_config"; then
-        mv "$temp_config" "$HYSTERIA_CONFIG"
-        log_success "出站规则 '$rule_name' 已删除"
+    # 使用更简单的方法：逐行处理，跳过要删除的规则块
+    local in_target_rule=false
+    local line_num=0
 
-        # 询问是否重启服务
-        echo "是否重启 Hysteria2 服务？ [y/N]"
-        read -r restart_service
-        if [[ $restart_service =~ ^[Yy]$ ]]; then
-            systemctl restart hysteria-server
-            log_success "服务已重启"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_num++))
+
+        # 检查是否是要删除的规则的开始
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+            in_target_rule=true
+            echo -e "${BLUE}[INFO]${NC} 找到要删除的规则在第 $line_num 行"
+            continue
         fi
-    else
+
+        # 检查是否是下一个规则的开始（结束当前删除块）
+        if [[ "$in_target_rule" == true ]] && [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]]; then
+            in_target_rule=false
+        fi
+
+        # 如果不在要删除的规则块中，则写入行
+        if [[ "$in_target_rule" == false ]]; then
+            echo "$line" >> "$temp_config"
+        fi
+    done < "$HYSTERIA_CONFIG"
+
+    # 检查删除是否成功
+    if grep -q "name: *$rule_name" "$temp_config" 2>/dev/null; then
+        echo -e "${RED}[ERROR]${NC} 删除失败，规则仍存在"
         rm -f "$temp_config"
-        log_error "删除出站规则失败"
+        return 1
     fi
 
-    wait_for_user
+    # 应用修改
+    if mv "$temp_config" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        echo -e "${GREEN}[SUCCESS]${NC} 出站规则 '$rule_name' 已删除"
+
+        # 询问是否重启服务
+        echo ""
+        echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
+        read -r restart_service
+
+        if [[ $restart_service =~ ^[Yy]$ ]]; then
+            if systemctl restart hysteria-server 2>/dev/null; then
+                echo -e "${GREEN}[SUCCESS]${NC} 服务已重启"
+            else
+                echo -e "${YELLOW}[WARN]${NC} 服务重启失败，请手动重启"
+            fi
+        fi
+    else
+        echo -e "${RED}[ERROR]${NC} 配置应用失败，恢复备份"
+        mv "$backup_file" "$HYSTERIA_CONFIG" 2>/dev/null
+        return 1
+    fi
+
+    echo ""
+    echo "按回车键继续..."
+    read -r
 }
 
 # 替换出站规则
