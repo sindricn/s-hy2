@@ -1,0 +1,35 @@
+# 开发过程中的说明文档，不需要上传到GitHub
+hy2/
+
+# 临时文件和备份文件
+*.backup
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+
+# 系统临时文件
+.DS_Store
+Thumbs.db
+
+# IDE和编辑器文件
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 构建和部署相关
+build/
+dist/
+node_modules/
+
+# 配置和密钥文件
+config.local.*
+*.key
+*.pem
+*.p12
+
+# 运行时文件
+*.pid
+*.sock

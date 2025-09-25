@@ -17,7 +17,8 @@
       "Bash(timeout:*)",
       "Read(//c//**)",
       "mcp__sequential-thinking__sequentialthinking",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(git check-ignore:*)"
     ],
     "deny": []
   }
