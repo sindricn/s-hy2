@@ -572,7 +572,8 @@ EOF
     echo -e "${BLUE}[INFO]${NC} 验证配置语法"
     if command -v hysteria >/dev/null 2>&1; then
         local validation_output
-        validation_output=$(hysteria check-config -c "$temp_file" 2>&1)
+        # Hysteria2使用server命令验证配置，而不是check-config
+        validation_output=$(hysteria server -c "$temp_file" --dry-run 2>&1 || hysteria server -c "$temp_file" -t 2>&1)
         local validation_result=$?
 
         if [[ $validation_result -eq 0 ]]; then
@@ -777,7 +778,8 @@ apply_outbound_to_config() {
     # 验证配置文件语法（如果hysteria可用）
     if command -v hysteria >/dev/null 2>&1; then
         local validation_output="/tmp/hysteria_validation_$$.log"
-        if ! hysteria check-config -c "$temp_config" 2>"$validation_output"; then
+        # 使用server模式验证配置，支持dry-run或test模式
+        if ! hysteria server -c "$temp_config" --dry-run 2>"$validation_output" && ! hysteria server -c "$temp_config" -t 2>"$validation_output"; then
             log_error "配置文件语法验证失败"
             log_error "详细错误信息:"
             while IFS= read -r line; do
@@ -1148,51 +1150,75 @@ delete_outbound_rule() {
     # 完整的配置删除方法：包含outbound规则、注释和相关ACL
     local in_target_rule=false
     local in_acl_section=false
+    local in_outbounds_section=false
+    local acl_indent=""
+    local rule_indent=""
     local line_num=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
 
+        # 检查是否进入outbounds节点
+        if [[ "$line" =~ ^[[:space:]]*outbounds: ]]; then
+            in_outbounds_section=true
+            echo "$line" >> "$temp_config"
+            continue
+        fi
+
         # 检查是否进入ACL节点
         if [[ "$line" =~ ^[[:space:]]*acl: ]]; then
             in_acl_section=true
+            acl_indent=$(echo "$line" | sed 's/acl:.*//')
+            echo "$line" >> "$temp_config"
+            continue
         fi
 
-        # 检查是否是目标规则的注释行
-        if [[ "$line" =~ ^[[:space:]]*#.*${rule_name}.* ]]; then
+        # 检查是否离开ACL节点
+        if [[ "$in_acl_section" == true ]]; then
+            if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(inline|file): ]]; then
+                local line_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                if [[ ${#line_indent} -le ${#acl_indent} ]]; then
+                    in_acl_section=false
+                fi
+            fi
+        fi
+
+        # 检查是否离开outbounds节点
+        if [[ "$in_outbounds_section" == true ]] && [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*- ]]; then
+            in_outbounds_section=false
+        fi
+
+        # 在outbounds节点中，检查是否是目标规则的注释行
+        if [[ "$in_outbounds_section" == true ]] && [[ "$line" =~ ^[[:space:]]*#.*${rule_name}.* ]]; then
             continue  # 跳过包含规则名的注释
         fi
 
+        # 在ACL节点中，跳过包含目标规则名的行
+        if [[ "$in_acl_section" == true ]] && [[ "$line" =~ $rule_name ]]; then
+            continue  # 跳过ACL中包含目标规则名的行
+        fi
+
         # 检查是否是要删除的outbound规则开始
-        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+        if [[ "$in_outbounds_section" == true ]] && [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
             in_target_rule=true
+            rule_indent=$(echo "$line" | sed 's/-[[:space:]]*name:.*//')
             continue
         fi
 
         # 检查是否是下一个outbound规则开始（结束当前删除块）
-        if [[ "$in_target_rule" == true ]] && [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]]; then
-            in_target_rule=false
-        fi
-
-        # 检查是否是其他顶级配置节点开始（结束outbound块）
-        if [[ "$in_target_rule" == true ]] && [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(direct|socks5|http): ]]; then
-            in_target_rule=false
-        fi
-
-        # 在ACL节点中，删除包含目标规则名的ACL行
-        if [[ "$in_acl_section" == true ]]; then
-            # 检查是否离开ACL节点
-            if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(inline|file): ]]; then
-                in_acl_section=false
-            elif [[ "$line" =~ $rule_name ]]; then
-                continue  # 跳过包含目标规则名的ACL行
+        if [[ "$in_target_rule" == true ]]; then
+            # 在目标规则块中，检查是否是下一个规则或退出outbounds节点
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]]; then
+                in_target_rule=false  # 遇到下一个规则，结束删除
+            elif [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|server|proxy|up|down|auth): ]]; then
+                in_target_rule=false  # 遇到其他顶级节点，结束删除
+            else
+                continue  # 跳过目标规则块内的所有行
             fi
         fi
 
-        # 如果不在要删除的规则块中，则写入行
-        if [[ "$in_target_rule" == false ]]; then
-            echo "$line" >> "$temp_config"
-        fi
+        # 写入非删除的行
+        echo "$line" >> "$temp_config"
     done < "$HYSTERIA_CONFIG"
 
     # 检查删除是否成功
