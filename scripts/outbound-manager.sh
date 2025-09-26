@@ -191,6 +191,8 @@ add_outbound_rule() {
 
     echo -e "${BLUE}=== 添加出站规则 ===${NC}"
     echo ""
+    echo -e "${YELLOW}注意: 每种类型只能有一个出站规则，添加同类型规则将覆盖现有规则${NC}"
+    echo ""
     echo "选择出站类型："
     echo "1. Direct (直连)"
     echo "2. SOCKS5 代理"
@@ -442,6 +444,138 @@ apply_outbound_config() {
     fi
 }
 
+# 检查现有同类型出站规则
+check_existing_outbound_type() {
+    local target_type="$1"
+    local config_file="${2:-$HYSTERIA_CONFIG}"
+
+    if [[ ! -f "$config_file" ]]; then
+        return 1  # 文件不存在，没有冲突
+    fi
+
+    # 查找同类型的规则
+    local in_outbounds=false
+    local current_rule_type=""
+    local current_rule_name=""
+
+    while IFS= read -r line; do
+        # 检测outbounds节点
+        if [[ "$line" =~ ^[[:space:]]*outbounds: ]]; then
+            in_outbounds=true
+            continue
+        fi
+
+        # 离开outbounds节点
+        if [[ "$in_outbounds" == true ]] && [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*- ]]; then
+            in_outbounds=false
+        fi
+
+        # 在outbounds节点中
+        if [[ "$in_outbounds" == true ]]; then
+            # 检测规则名
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*(.+)$ ]]; then
+                current_rule_name="${BASH_REMATCH[1]}"
+                current_rule_name=$(echo "$current_rule_name" | xargs)  # 去除前后空格
+            fi
+
+            # 检测规则类型
+            if [[ "$line" =~ ^[[:space:]]*type:[[:space:]]*(.+)$ ]]; then
+                current_rule_type="${BASH_REMATCH[1]}"
+                current_rule_type=$(echo "$current_rule_type" | xargs)  # 去除前后空格
+
+                # 检查是否与目标类型匹配
+                if [[ "$current_rule_type" == "$target_type" ]]; then
+                    echo "$current_rule_name"  # 返回现有同类型规则的名称
+                    return 0
+                fi
+            fi
+        fi
+    done < "$config_file"
+
+    return 1  # 未找到同类型规则
+}
+
+# 静默删除指定规则（用于类型覆盖，无用户确认）
+delete_existing_rule_silent() {
+    local rule_name="$1"
+
+    echo -e "${BLUE}[INFO]${NC} 正在删除现有规则: $rule_name"
+
+    # 创建临时文件
+    local temp_config="/tmp/hysteria_delete_temp_$(date +%s).yaml"
+
+    # 智能删除逻辑：完整删除outbound规则和相关ACL条目
+    local in_outbound_rule=false
+    local in_acl_section=false
+    local acl_base_indent=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local should_keep=true
+
+        # 1. 删除包含规则名的注释
+        if [[ "$line" =~ ^[[:space:]]*#.*${rule_name} ]]; then
+            should_keep=false
+        fi
+
+        # 2. 检测outbound规则块
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+            in_outbound_rule=true
+            should_keep=false
+        elif [[ "$in_outbound_rule" == true ]]; then
+            # 在outbound规则块中，检查是否结束
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
+                in_outbound_rule=false
+                should_keep=true
+            else
+                should_keep=false  # 删除outbound规则块内的所有行
+            fi
+        fi
+
+        # 3. 检测ACL节点
+        if [[ "$line" =~ ^[[:space:]]*acl: ]]; then
+            in_acl_section=true
+            acl_base_indent=$(echo "$line" | sed 's/acl:.*//')
+            should_keep=true
+        elif [[ "$in_acl_section" == true ]]; then
+            # 检查是否离开ACL节点
+            if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(inline|file): ]]; then
+                local line_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                if [[ ${#line_indent} -le ${#acl_base_indent} ]]; then
+                    in_acl_section=false
+                    should_keep=true
+                fi
+            fi
+
+            # 在ACL节点中处理 - 删除包含目标规则名的行
+            if [[ "$in_acl_section" == true ]] && [[ "$line" =~ ${rule_name} ]]; then
+                should_keep=false  # 删除ACL中包含目标规则名的条目
+            fi
+        fi
+
+        # 写入保留的行
+        if [[ "$should_keep" == true ]]; then
+            echo "$line" >> "$temp_config"
+        fi
+    done < "$HYSTERIA_CONFIG"
+
+    # 检查删除是否成功
+    if grep -q "name: *$rule_name" "$temp_config" 2>/dev/null; then
+        echo -e "${RED}[ERROR]${NC} 删除失败，规则仍存在"
+        rm -f "$temp_config"
+        return 1
+    fi
+
+    # 应用修改
+    if mv "$temp_config" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        echo -e "${GREEN}[SUCCESS]${NC} 现有规则 '$rule_name' 已删除"
+        return 0
+    else
+        echo -e "${RED}[ERROR]${NC} 删除失败，文件操作错误"
+        rm -f "$temp_config"
+        return 1
+    fi
+}
+
 # 极简稳定的配置应用函数
 apply_outbound_simple() {
     local name="$1" type="$2"
@@ -452,6 +586,40 @@ apply_outbound_simple() {
     if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
         echo -e "${RED}[ERROR]${NC} 配置文件不存在: $HYSTERIA_CONFIG"
         return 1
+    fi
+
+    # 检查同类型规则冲突
+    local existing_rule
+    if existing_rule=$(check_existing_outbound_type "$type"); then
+        echo ""
+        echo -e "${YELLOW}⚠️  冲突检测 ⚠️${NC}"
+        echo -e "${YELLOW}检测到现有的 $type 类型规则: ${CYAN}$existing_rule${NC}"
+        echo -e "${YELLOW}根据系统设计原则，每种类型只能有一个出站规则${NC}"
+        echo ""
+        echo -e "${BLUE}可选操作：${NC}"
+        echo -e "${GREEN}1.${NC} 覆盖现有规则 ${CYAN}$existing_rule${NC} (推荐)"
+        echo -e "${RED}2.${NC} 取消本次添加操作"
+        echo ""
+        read -p "请选择操作 [1-2]: " choice
+
+        case $choice in
+            1)
+                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $type 规则: $existing_rule"
+                # 先删除现有同类型规则 (静默删除，不需要用户确认)
+                if ! delete_existing_rule_silent "$existing_rule"; then
+                    echo -e "${RED}[ERROR]${NC} 删除现有规则失败"
+                    return 1
+                fi
+                ;;
+            2)
+                echo -e "${BLUE}[INFO]${NC} 取消添加操作"
+                return 0
+                ;;
+            *)
+                echo -e "${RED}[ERROR]${NC} 无效选择，取消添加"
+                return 1
+                ;;
+        esac
     fi
 
     # 直接操作，不创建不必要的备份
