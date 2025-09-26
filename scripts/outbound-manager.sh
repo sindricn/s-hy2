@@ -28,67 +28,6 @@ init_outbound_manager() {
     # 模板功能已移除
 }
 
-      # bindDevice: "eth0"     # 可选：绑定网卡
-
-# 简单 ACL 规则 - 全部直连
-acl: |
-  direct_out(all)
-EOF
-    fi
-
-    # SOCKS5 出站模板
-    if [[ ! -f "$OUTBOUND_TEMPLATES_DIR/socks5.yaml" ]]; then
-        cat > "$OUTBOUND_TEMPLATES_DIR/socks5.yaml" << 'EOF'
-# SOCKS5 代理出站配置模板
-outbounds:
-  - name: direct_out
-    type: direct
-  - name: socks5_out
-    type: socks5
-    socks5:
-      addr: "proxy.example.com:1080"
-      username: "your_username"  # 可选
-      password: "your_password"  # 可选
-
-# 简单 ACL 规则 - 国外走代理，国内直连
-acl: |
-  # 国外 IP 走 SOCKS5 代理
-  socks5_out(geoip:!cn)
-  # 国内 IP 直连
-  direct_out(geoip:cn)
-  # 其他所有连接直连
-  direct_out(all)
-EOF
-    fi
-
-    # HTTP 出站模板
-    if [[ ! -f "$OUTBOUND_TEMPLATES_DIR/http.yaml" ]]; then
-        cat > "$OUTBOUND_TEMPLATES_DIR/http.yaml" << 'EOF'
-# HTTP/HTTPS 代理出站配置模板
-outbounds:
-  - name: direct_out
-    type: direct
-  - name: http_out
-    type: http
-    http:
-      url: "http://username:password@proxy.example.com:8080"
-      # 或 HTTPS: "https://username:password@proxy.example.com:8080"
-      insecure: false  # 是否跳过 TLS 验证
-
-# 简单 ACL 规则 - 特定域名走代理
-acl: |
-  # 特定网站走 HTTP 代理
-  http_out(suffix:google.com)
-  http_out(suffix:youtube.com)
-  http_out(suffix:facebook.com)
-  # 其他所有连接直连
-  direct_out(all)
-EOF
-    fi
-
-    log_success "默认出站模板已创建"
-}
-
 # 显示出站管理菜单
 show_outbound_menu() {
     clear
