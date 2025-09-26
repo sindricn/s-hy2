@@ -479,55 +479,102 @@ apply_outbound_simple() {
     echo -e "${BLUE}[INFO]${NC} 添加出站配置到临时文件"
 
     if grep -q "^[[:space:]]*outbounds:" "$temp_file" 2>/dev/null; then
-        echo -e "${BLUE}[INFO]${NC} 检测到现有outbounds配置，追加新规则"
-        cat >> "$temp_file" << EOF
+        echo -e "${BLUE}[INFO]${NC} 检测到现有outbounds配置，插入新规则"
 
-# 新增出站规则 - $name ($type)
+        # 创建新的临时文件用于正确插入
+        local temp_file2="/tmp/hysteria_merge_$$_$(date +%s).yaml"
+        local in_outbounds=false
+        local inserted=false
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # 检测outbounds节点开始
+            if [[ "$line" =~ ^[[:space:]]*outbounds: ]]; then
+                in_outbounds=true
+                echo "$line" >> "$temp_file2"
+                continue
+            fi
+
+            # 在outbounds节点中，找到合适位置插入
+            if [[ "$in_outbounds" == true ]] && [[ "$inserted" == false ]]; then
+                # 如果遇到其他顶级节点，在此之前插入新规则
+                if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*- ]]; then
+                    # 插入新规则
+                    cat >> "$temp_file2" << EOF
+
+  # 新增出站规则 - $name ($type)
   - name: $name
     type: $type
 EOF
-        case $type in
-            "direct")
-                cat >> "$temp_file" << EOF
-    direct:
-      mode: auto
-EOF
-                ;;
-            "socks5")
-                cat >> "$temp_file" << EOF
-    socks5:
-      addr: "${SOCKS5_ADDR:-proxy.example.com:1080}"
-EOF
-                if [[ -n "${SOCKS5_USERNAME:-}" ]]; then
-                    echo "      username: \"$SOCKS5_USERNAME\"" >> "$temp_file"
-                    echo "      password: \"$SOCKS5_PASSWORD\"" >> "$temp_file"
+                    case $type in
+                        "direct")
+                            echo "    direct:" >> "$temp_file2"
+                            echo "      mode: auto" >> "$temp_file2"
+                            ;;
+                        "socks5")
+                            echo "    socks5:" >> "$temp_file2"
+                            echo "      addr: \"${SOCKS5_ADDR:-127.0.0.1:1080}\"" >> "$temp_file2"
+                            if [[ -n "${SOCKS5_USERNAME:-}" ]]; then
+                                echo "      username: \"$SOCKS5_USERNAME\"" >> "$temp_file2"
+                                echo "      password: \"$SOCKS5_PASSWORD\"" >> "$temp_file2"
+                            fi
+                            ;;
+                        "http")
+                            echo "    http:" >> "$temp_file2"
+                            echo "      url: \"${HTTP_URL:-http://127.0.0.1:8080}\"" >> "$temp_file2"
+                            if [[ -n "${HTTP_INSECURE:-}" ]]; then
+                                echo "      insecure: $HTTP_INSECURE" >> "$temp_file2"
+                            fi
+                            ;;
+                    esac
+                    echo "" >> "$temp_file2"
+                    inserted=true
+                    in_outbounds=false
                 fi
-                ;;
-            "http")
-                cat >> "$temp_file" << EOF
-    http:
-      url: "${HTTP_URL:-http://proxy.example.com:8080}"
-EOF
-                if [[ -n "${HTTP_INSECURE:-}" ]]; then
-                    echo "      insecure: $HTTP_INSECURE" >> "$temp_file"
-                fi
-                ;;
-        esac
+            fi
 
-        # 检查并处理ACL规则
+            echo "$line" >> "$temp_file2"
+        done < "$temp_file"
+
+        # 如果在文件末尾仍未插入，在outbounds节点末尾添加
+        if [[ "$inserted" == false ]] && [[ "$in_outbounds" == true ]]; then
+            cat >> "$temp_file2" << EOF
+
+  # 新增出站规则 - $name ($type)
+  - name: $name
+    type: $type
+EOF
+            case $type in
+                "direct")
+                    echo "    direct:" >> "$temp_file2"
+                    echo "      mode: auto" >> "$temp_file2"
+                    ;;
+                "socks5")
+                    echo "    socks5:" >> "$temp_file2"
+                    echo "      addr: \"${SOCKS5_ADDR:-127.0.0.1:1080}\"" >> "$temp_file2"
+                    ;;
+                "http")
+                    echo "    http:" >> "$temp_file2"
+                    echo "      url: \"${HTTP_URL:-http://127.0.0.1:8080}\"" >> "$temp_file2"
+                    ;;
+            esac
+        fi
+
+        # 替换原文件
+        mv "$temp_file2" "$temp_file"
+
+        # 处理ACL规则
         echo -e "${BLUE}[INFO]${NC} 检查ACL路由规则"
-        if ! grep -q "^[[:space:]]*acl:" "$temp_file" 2>/dev/null; then
+        if grep -q "^[[:space:]]*acl:" "$temp_file" 2>/dev/null; then
+            echo -e "${YELLOW}[WARN]${NC} 检测到现有ACL规则，请手动添加路由规则"
+        else
             echo -e "${BLUE}[INFO]${NC} 添加基本ACL规则"
             cat >> "$temp_file" << EOF
 
 # ACL规则 - 路由配置
 acl:
   inline:
-    - $name(all)  # 所有流量使用新增的出站规则
+    - $name(all)  # 使用新增出站规则
 EOF
-        else
-            echo -e "${YELLOW}[WARN]${NC} 检测到现有ACL规则"
-            echo -e "${YELLOW}[WARN]${NC} 请手动在ACL中添加: $name(域名或规则)"
         fi
 
     else
@@ -1147,78 +1194,48 @@ delete_outbound_rule() {
     # 创建临时文件
     local temp_config="/tmp/hysteria_delete_temp_$(date +%s).yaml"
 
-    # 完整的配置删除方法：包含outbound规则、注释和相关ACL
+    # 简化的删除逻辑：删除outbound规则和相关ACL条目
     local in_target_rule=false
-    local in_acl_section=false
-    local in_outbounds_section=false
-    local acl_indent=""
-    local rule_indent=""
-    local line_num=0
+    local skip_line=false
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        ((line_num++))
+        skip_line=false
 
-        # 检查是否进入outbounds节点
-        if [[ "$line" =~ ^[[:space:]]*outbounds: ]]; then
-            in_outbounds_section=true
-            echo "$line" >> "$temp_config"
-            continue
-        fi
-
-        # 检查是否进入ACL节点
-        if [[ "$line" =~ ^[[:space:]]*acl: ]]; then
-            in_acl_section=true
-            acl_indent=$(echo "$line" | sed 's/acl:.*//')
-            echo "$line" >> "$temp_config"
-            continue
-        fi
-
-        # 检查是否离开ACL节点
-        if [[ "$in_acl_section" == true ]]; then
-            if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(inline|file): ]]; then
-                local line_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
-                if [[ ${#line_indent} -le ${#acl_indent} ]]; then
-                    in_acl_section=false
-                fi
-            fi
-        fi
-
-        # 检查是否离开outbounds节点
-        if [[ "$in_outbounds_section" == true ]] && [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*- ]]; then
-            in_outbounds_section=false
-        fi
-
-        # 在outbounds节点中，检查是否是目标规则的注释行
-        if [[ "$in_outbounds_section" == true ]] && [[ "$line" =~ ^[[:space:]]*#.*${rule_name}.* ]]; then
-            continue  # 跳过包含规则名的注释
-        fi
-
-        # 在ACL节点中，跳过包含目标规则名的行
-        if [[ "$in_acl_section" == true ]] && [[ "$line" =~ $rule_name ]]; then
-            continue  # 跳过ACL中包含目标规则名的行
+        # 检查是否是目标规则的注释（在outbounds或其他地方）
+        if [[ "$line" =~ ^[[:space:]]*#.*${rule_name} ]]; then
+            skip_line=true
         fi
 
         # 检查是否是要删除的outbound规则开始
-        if [[ "$in_outbounds_section" == true ]] && [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
             in_target_rule=true
-            rule_indent=$(echo "$line" | sed 's/-[[:space:]]*name:.*//')
-            continue
+            skip_line=true
         fi
 
-        # 检查是否是下一个outbound规则开始（结束当前删除块）
+        # 如果在目标规则块中
         if [[ "$in_target_rule" == true ]]; then
-            # 在目标规则块中，检查是否是下一个规则或退出outbounds节点
+            # 检查是否遇到下一个规则或者其他顶级节点
             if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]]; then
                 in_target_rule=false  # 遇到下一个规则，结束删除
-            elif [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|server|proxy|up|down|auth): ]]; then
+                skip_line=false      # 保留这一行
+            elif [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode): ]]; then
                 in_target_rule=false  # 遇到其他顶级节点，结束删除
+                skip_line=false      # 保留这一行
             else
-                continue  # 跳过目标规则块内的所有行
+                skip_line=true       # 跳过规则块内的行
             fi
         fi
 
-        # 写入非删除的行
-        echo "$line" >> "$temp_config"
+        # 检查ACL中包含目标规则名的行
+        if [[ ! "$skip_line" == true ]] && [[ "$line" =~ $rule_name ]]; then
+            # 如果这行包含规则名，可能是ACL条目，跳过
+            skip_line=true
+        fi
+
+        # 写入需要保留的行
+        if [[ ! "$skip_line" == true ]]; then
+            echo "$line" >> "$temp_config"
+        fi
     done < "$HYSTERIA_CONFIG"
 
     # 检查删除是否成功
