@@ -19,35 +19,15 @@ fi
 if [[ -z "${HYSTERIA_CONFIG:-}" ]]; then
     readonly HYSTERIA_CONFIG="/etc/hysteria/config.yaml"
 fi
-if [[ -z "${OUTBOUND_TEMPLATES_DIR:-}" ]]; then
-    readonly OUTBOUND_TEMPLATES_DIR="$SCRIPT_DIR/outbound-templates"
-fi
 # 备份功能已移除
 
 # 初始化出站管理
 init_outbound_manager() {
     log_info "初始化出站规则管理器"
 
-    # 创建模板目录
-    mkdir -p "$OUTBOUND_TEMPLATES_DIR"
-
-    # 创建基础模板（如果不存在）
-    create_default_templates
+    # 模板功能已移除
 }
 
-# 创建默认模板
-create_default_templates() {
-    # Direct 出站模板
-    if [[ ! -f "$OUTBOUND_TEMPLATES_DIR/direct.yaml" ]]; then
-        cat > "$OUTBOUND_TEMPLATES_DIR/direct.yaml" << 'EOF'
-# Direct 直连出站配置模板
-outbounds:
-  - name: direct_out
-    type: direct
-    direct:
-      mode: auto
-      # bindIPv4: "1.2.3.4"    # 可选：绑定 IPv4 地址
-      # bindIPv6: "::1"        # 可选：绑定 IPv6 地址
       # bindDevice: "eth0"     # 可选：绑定网卡
 
 # 简单 ACL 规则 - 全部直连
@@ -116,10 +96,7 @@ show_outbound_menu() {
     echo ""
     echo -e "${GREEN}1.${NC} 查看当前出站配置"
     echo -e "${GREEN}2.${NC} 添加新的出站规则"
-    echo -e "${GREEN}3.${NC} 使用模板配置"
-    echo -e "${GREEN}4.${NC} 修改现有配置"
-    echo -e "${GREEN}5.${NC} 测试出站连通性"
-    # 备份功能已移除
+    echo -e "${GREEN}3.${NC} 修改现有配置"
     echo -e "${RED}0.${NC} 返回主菜单"
     echo ""
 }
@@ -1100,183 +1077,12 @@ generate_http_yaml_config() {
 # 备份当前配置
 # 备份功能已移除
 
-# 使用模板配置
-use_template_config() {
-    echo -e "${BLUE}=== 使用模板配置 ===${NC}"
-    echo ""
-    echo "可用模板："
-    echo "1. Direct 直连模板"
-    echo "2. SOCKS5 代理模板"
-    echo "3. HTTP 代理模板"
-    echo ""
 
-    local choice
-    read -p "请选择模板 [1-3]: " choice
 
-    case $choice in
-        1) apply_template "direct.yaml" ;;
-        2) apply_template "socks5.yaml" ;;
-        3) apply_template "http.yaml" ;;
-        *)
-            log_error "无效选择"
-            return 1
-            ;;
-    esac
-}
 
-# 应用模板
-apply_template() {
-    local template="$1"
-    local template_path="$OUTBOUND_TEMPLATES_DIR/$template"
 
-    if [[ ! -f "$template_path" ]]; then
-        log_error "模板文件不存在: $template"
-        return 1
-    fi
 
-    echo -e "${BLUE}模板内容预览：${NC}"
-    echo "---"
-    cat "$template_path"
-    echo "---"
-    echo ""
 
-    echo "是否使用此模板？ [y/N]"
-    read -r use_template
-
-    if [[ $use_template =~ ^[Yy]$ ]]; then
-        # 备份功能已移除
-
-        # 这里需要实际的模板应用逻辑
-        log_success "模板配置已应用: $template"
-
-        echo "是否重启 Hysteria2 服务？ [y/N]"
-        read -r restart_service
-
-        if [[ $restart_service =~ ^[Yy]$ ]]; then
-            systemctl restart hysteria-server
-            log_success "服务已重启"
-        fi
-    fi
-}
-
-# 测试出站连通性
-test_outbound_connectivity() {
-    log_info "测试出站连通性"
-
-    echo -e "${BLUE}=== 出站连通性测试 ===${NC}"
-    echo ""
-
-    # 检查是否有出站配置
-    if ! grep -q "^outbounds:" "$HYSTERIA_CONFIG"; then
-        echo -e "${YELLOW}当前没有配置出站规则，无法测试${NC}"
-        wait_for_user
-        return
-    fi
-
-    # 列出可用的出站规则
-    echo -e "${GREEN}当前出站规则：${NC}"
-    grep "^[[:space:]]*-[[:space:]]*name:" "$HYSTERIA_CONFIG" | sed 's/.*name:[[:space:]]*/- /' | nl
-    echo ""
-
-    echo "测试选项："
-    echo "1. 测试直连连通性"
-    echo "2. 测试域名解析"
-    echo "3. 测试网络延迟"
-    echo "4. 测试端口连通性"
-    echo ""
-
-    read -p "请选择测试类型 [1-4]: " test_choice
-
-    case $test_choice in
-        1) test_direct_connectivity ;;
-        2) test_dns_resolution ;;
-        3) test_network_latency ;;
-        4) test_port_connectivity ;;
-        *)
-            log_error "无效选择"
-            ;;
-    esac
-
-    wait_for_user
-}
-
-# 测试直连连通性
-test_direct_connectivity() {
-    echo -e "${CYAN}=== 直连连通性测试 ===${NC}"
-    echo ""
-
-    local test_urls=("8.8.8.8" "1.1.1.1" "google.com" "baidu.com")
-
-    for url in "${test_urls[@]}"; do
-        echo -n "测试连接到 $url... "
-        if ping -c 1 -W 5 "$url" >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ 成功${NC}"
-        else
-            echo -e "${RED}✗ 失败${NC}"
-        fi
-    done
-    echo ""
-}
-
-# 测试域名解析
-test_dns_resolution() {
-    echo -e "${CYAN}=== DNS 解析测试 ===${NC}"
-    echo ""
-
-    local test_domains=("google.com" "github.com" "baidu.com" "qq.com")
-
-    for domain in "${test_domains[@]}"; do
-        echo -n "解析域名 $domain... "
-        if nslookup "$domain" >/dev/null 2>&1; then
-            local ip=$(nslookup "$domain" 2>/dev/null | grep "Address:" | tail -n1 | awk '{print $2}')
-            echo -e "${GREEN}✓ $ip${NC}"
-        else
-            echo -e "${RED}✗ 解析失败${NC}"
-        fi
-    done
-    echo ""
-}
-
-# 测试网络延迟
-test_network_latency() {
-    echo -e "${CYAN}=== 网络延迟测试 ===${NC}"
-    echo ""
-
-    local test_servers=("8.8.8.8" "1.1.1.1" "baidu.com")
-
-    for server in "${test_servers[@]}"; do
-        echo -n "测试到 $server 的延迟... "
-        local latency=$(ping -c 3 -W 5 "$server" 2>/dev/null | tail -1 | awk -F '/' '{print $5}' 2>/dev/null)
-        if [[ -n "$latency" ]]; then
-            echo -e "${GREEN}${latency}ms${NC}"
-        else
-            echo -e "${RED}✗ 超时${NC}"
-        fi
-    done
-    echo ""
-}
-
-# 测试端口连通性
-test_port_connectivity() {
-    echo -e "${CYAN}=== 端口连通性测试 ===${NC}"
-    echo ""
-
-    read -p "请输入要测试的主机地址: " host
-    read -p "请输入端口号: " port
-
-    if [[ -z "$host" || -z "$port" ]]; then
-        log_error "主机地址和端口不能为空"
-        return
-    fi
-
-    echo -n "测试连接到 $host:$port... "
-    if timeout 10 bash -c "</dev/tcp/$host/$port" 2>/dev/null; then
-        echo -e "${GREEN}✓ 端口开放${NC}"
-    else
-        echo -e "${RED}✗ 端口关闭或无法访问${NC}"
-    fi
-    echo ""
-}
 
 # 修改现有出站配置
 modify_outbound_config() {
@@ -1318,17 +1124,21 @@ modify_outbound_config() {
     local selected_outbound="${outbound_names[$((choice-1))]}"
 
     echo -e "${BLUE}修改选项：${NC}"
-    echo "1. 删除此出站规则"
-    echo "2. 替换为新的出站规则"
-    echo "3. 查看详细配置"
+    echo "1. 修改规则名称"
+    echo "2. 修改服务器地址"
+    echo "3. 修改用户名"
+    echo "4. 修改密码"
+    echo "5. 删除此出站规则"
     echo ""
 
-    read -p "请选择操作 [1-3]: " modify_choice
+    read -p "请选择操作 [1-5]: " modify_choice
 
     case $modify_choice in
-        1) delete_outbound_rule "$selected_outbound" ;;
-        2) replace_outbound_rule "$selected_outbound" ;;
-        3) show_outbound_details "$selected_outbound" ;;
+        1) modify_rule_name "$selected_outbound" ;;
+        2) modify_server_address "$selected_outbound" ;;
+        3) modify_username "$selected_outbound" ;;
+        4) modify_password "$selected_outbound" ;;
+        5) delete_outbound_rule "$selected_outbound" ;;
         *)
             log_error "无效选择"
             ;;
@@ -1459,36 +1269,7 @@ delete_outbound_rule() {
     read -r
 }
 
-# 替换出站规则
-replace_outbound_rule() {
-    local old_rule_name="$1"
 
-    echo -e "${BLUE}=== 替换出站规则 '$old_rule_name' ===${NC}"
-    echo ""
-    echo "将创建新的出站规则来替换现有的规则"
-    echo ""
-
-    # 先删除旧规则
-    delete_outbound_rule "$old_rule_name"
-
-    # 添加新规则
-    echo -e "${GREEN}现在添加新的出站规则：${NC}"
-    add_outbound_rule
-}
-
-# 显示出站规则详细信息
-show_outbound_details() {
-    local rule_name="$1"
-
-    echo -e "${CYAN}=== 出站规则 '$rule_name' 详细信息 ===${NC}"
-    echo ""
-
-    # 提取并显示指定规则的配置
-    sed -n "/- name: $rule_name/,/^  - name:/p" "$HYSTERIA_CONFIG" | sed '$d'
-
-    echo ""
-    wait_for_user
-}
 
 # 备份和恢复配置
 # 备份功能已移除
@@ -1507,15 +1288,12 @@ manage_outbound() {
         show_outbound_menu
 
         local choice
-        read -p "请选择操作 [0-6]: " choice
+        read -p "请选择操作 [0-3]: " choice
 
         case $choice in
             1) view_current_outbound ;;
             2) add_outbound_rule ;;
-            3) use_template_config ;;
-            4) modify_outbound_config ;;
-            5) test_outbound_connectivity ;;
-            # 6) 备份功能已移除 ;;
+            3) modify_outbound_config ;;
             0)
                 log_info "返回主菜单"
                 break
@@ -1526,6 +1304,198 @@ manage_outbound() {
                 ;;
         esac
     done
+}
+
+# 修改规则名称
+modify_rule_name() {
+    local old_name="$1"
+
+    echo -e "${BLUE}=== 修改规则名称 ===${NC}"
+    echo "当前规则名称: ${CYAN}$old_name${NC}"
+    echo ""
+
+    read -p "请输入新的规则名称: " new_name
+
+    if [[ -z "$new_name" ]]; then
+        log_error "规则名称不能为空"
+        return
+    fi
+
+    # 检查新名称是否已存在
+    if grep -q "name: *$new_name" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        log_error "规则名称 '$new_name' 已存在"
+        return
+    fi
+
+    # 执行替换
+    if sed -i.bak "s/name: *$old_name/name: $new_name/g" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        # 同时更新ACL中的引用
+        sed -i.bak "s/- $old_name/- $new_name/g" "$HYSTERIA_CONFIG" 2>/dev/null
+        rm -f "$HYSTERIA_CONFIG.bak"
+
+        log_success "规则名称已更新: $old_name → $new_name"
+        ask_restart_service
+    else
+        log_error "修改失败"
+    fi
+}
+
+# 修改服务器地址
+modify_server_address() {
+    local rule_name="$1"
+
+    echo -e "${BLUE}=== 修改服务器地址 ===${NC}"
+    echo "规则名称: ${CYAN}$rule_name${NC}"
+    echo ""
+
+    # 获取当前地址
+    local current_addr=$(sed -n "/- name: $rule_name/,/^  - name:/p" "$HYSTERIA_CONFIG" | grep -E "(addr|url):" | head -1 | sed 's/.*: *//')
+    if [[ -n "$current_addr" ]]; then
+        echo "当前地址: ${YELLOW}$current_addr${NC}"
+    fi
+
+    read -p "请输入新的服务器地址: " new_addr
+
+    if [[ -z "$new_addr" ]]; then
+        log_error "服务器地址不能为空"
+        return
+    fi
+
+    # 创建临时文件进行修改
+    local temp_config="/tmp/hysteria_modify_addr_$(date +%s).yaml"
+    local in_target_rule=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+            in_target_rule=true
+            echo "$line" >> "$temp_config"
+        elif [[ "$in_target_rule" == true ]]; then
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
+                in_target_rule=false
+                echo "$line" >> "$temp_config"
+            elif [[ "$line" =~ ^[[:space:]]*(addr|url):[[:space:]]* ]]; then
+                local indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                if [[ "$line" =~ addr: ]]; then
+                    echo "${indent}addr: $new_addr" >> "$temp_config"
+                else
+                    echo "${indent}url: $new_addr" >> "$temp_config"
+                fi
+            else
+                echo "$line" >> "$temp_config"
+            fi
+        else
+            echo "$line" >> "$temp_config"
+        fi
+    done < "$HYSTERIA_CONFIG"
+
+    if mv "$temp_config" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        log_success "服务器地址已更新"
+        ask_restart_service
+    else
+        log_error "修改失败"
+        rm -f "$temp_config"
+    fi
+}
+
+# 修改用户名
+modify_username() {
+    local rule_name="$1"
+
+    echo -e "${BLUE}=== 修改用户名 ===${NC}"
+    echo "规则名称: ${CYAN}$rule_name${NC}"
+    echo ""
+
+    # 获取当前用户名
+    local current_username=$(sed -n "/- name: $rule_name/,/^  - name:/p" "$HYSTERIA_CONFIG" | grep "username:" | sed 's/.*username: *//' | tr -d '"')
+    if [[ -n "$current_username" ]]; then
+        echo "当前用户名: ${YELLOW}$current_username${NC}"
+    fi
+
+    read -p "请输入新的用户名 (留空则删除): " new_username
+
+    # 修改用户名
+    modify_config_field "$rule_name" "username" "$new_username"
+}
+
+# 修改密码
+modify_password() {
+    local rule_name="$1"
+
+    echo -e "${BLUE}=== 修改密码 ===${NC}"
+    echo "规则名称: ${CYAN}$rule_name${NC}"
+    echo ""
+
+    read -s -p "请输入新密码 (留空则删除): " new_password
+    echo ""
+
+    # 修改密码
+    modify_config_field "$rule_name" "password" "$new_password"
+}
+
+# 通用配置字段修改函数
+modify_config_field() {
+    local rule_name="$1"
+    local field_name="$2"
+    local new_value="$3"
+
+    local temp_config="/tmp/hysteria_modify_${field_name}_$(date +%s).yaml"
+    local in_target_rule=false
+    local field_found=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+            in_target_rule=true
+            echo "$line" >> "$temp_config"
+        elif [[ "$in_target_rule" == true ]]; then
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
+                # 如果没找到字段且有新值，在规则结束前插入
+                if [[ "$field_found" == false && -n "$new_value" ]]; then
+                    local base_indent="      " # 假设基础缩进
+                    echo "${base_indent}${field_name}: $new_value" >> "$temp_config"
+                fi
+                in_target_rule=false
+                echo "$line" >> "$temp_config"
+            elif [[ "$line" =~ ^[[:space:]]*${field_name}:[[:space:]]* ]]; then
+                field_found=true
+                if [[ -n "$new_value" ]]; then
+                    local indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                    echo "${indent}${field_name}: $new_value" >> "$temp_config"
+                fi
+                # 如果新值为空，则跳过此行（删除字段）
+            else
+                echo "$line" >> "$temp_config"
+            fi
+        else
+            echo "$line" >> "$temp_config"
+        fi
+    done < "$HYSTERIA_CONFIG"
+
+    if mv "$temp_config" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        if [[ -n "$new_value" ]]; then
+            log_success "${field_name} 已更新"
+        else
+            log_success "${field_name} 已删除"
+        fi
+        ask_restart_service
+    else
+        log_error "修改失败"
+        rm -f "$temp_config"
+    fi
+}
+
+# 询问是否重启服务
+ask_restart_service() {
+    echo ""
+    echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
+    read -r restart_choice
+
+    if [[ $restart_choice =~ ^[Yy]$ ]]; then
+        if systemctl restart hysteria-server 2>/dev/null; then
+            log_success "服务已重启"
+        else
+            log_error "服务重启失败，请手动重启"
+        fi
+    fi
 }
 
 # 如果脚本被直接执行
