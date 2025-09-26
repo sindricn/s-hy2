@@ -202,19 +202,60 @@ add_outbound_rule() {
     local choice
     read -p "请选择 [1-3]: " choice
 
+    # 确定选择的类型
+    local selected_type
     case $choice in
-        1) add_direct_outbound ;;
-        2) add_socks5_outbound ;;
-        3) add_http_outbound ;;
+        1) selected_type="direct" ;;
+        2) selected_type="socks5" ;;
+        3) selected_type="http" ;;
         *)
             log_error "无效选择"
             return 1
             ;;
     esac
+
+    # 立即进行类型冲突检测
+    local existing_rule=""
+    if existing_rule=$(check_existing_outbound_type "$selected_type"); then
+        echo ""
+        echo -e "${YELLOW}⚠️  类型冲突检测 ⚠️${NC}"
+        echo -e "${YELLOW}检测到现有的 ${selected_type} 类型规则: ${CYAN}$existing_rule${NC}"
+        echo -e "${YELLOW}根据系统设计，每种类型只能有一个出站规则${NC}"
+        echo ""
+        echo -e "${BLUE}选择操作：${NC}"
+        echo -e "${GREEN}1.${NC} 继续添加并覆盖现有规则 ${CYAN}$existing_rule${NC}"
+        echo -e "${RED}2.${NC} 取消添加操作"
+        echo ""
+        read -p "请选择 [1-2]: " conflict_choice
+
+        case $conflict_choice in
+            1)
+                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $selected_type 规则: $existing_rule"
+                echo -e "${BLUE}[INFO]${NC} 继续配置新规则..."
+                echo ""
+                ;;
+            2)
+                echo -e "${BLUE}[INFO]${NC} 已取消添加操作"
+                return 0
+                ;;
+            *)
+                echo -e "${RED}[ERROR]${NC} 无效选择，取消操作"
+                return 1
+                ;;
+        esac
+    fi
+
+    # 执行对应的配置函数，传入要覆盖的规则名称
+    case $choice in
+        1) add_direct_outbound "$existing_rule" ;;
+        2) add_socks5_outbound "$existing_rule" ;;
+        3) add_http_outbound "$existing_rule" ;;
+    esac
 }
 
 # 添加直连出站
 add_direct_outbound() {
+    local existing_rule="${1:-}"
     echo -e "${BLUE}=== 配置 Direct 直连出站 ===${NC}"
     echo ""
 
@@ -266,6 +307,7 @@ add_direct_outbound() {
 
 # 添加 SOCKS5 出站
 add_socks5_outbound() {
+    local existing_rule="${1:-}"
     echo -e "${BLUE}=== 配置 SOCKS5 代理出站 ===${NC}"
     echo ""
 
@@ -302,6 +344,7 @@ add_socks5_outbound() {
 
 # 添加 HTTP 出站
 add_http_outbound() {
+    local existing_rule="${1:-}"
     echo -e "${BLUE}=== 配置 HTTP/HTTPS 代理出站 ===${NC}"
     echo ""
 
@@ -367,7 +410,7 @@ generate_direct_config() {
     echo "---"
     echo ""
 
-    apply_outbound_config "$name" "direct"
+    apply_outbound_config "$name" "direct" "$existing_rule"
 }
 
 generate_socks5_config() {
@@ -388,7 +431,7 @@ generate_socks5_config() {
     echo "---"
     echo ""
 
-    apply_outbound_config "$name" "socks5"
+    apply_outbound_config "$name" "socks5" "$existing_rule"
 }
 
 generate_http_config() {
@@ -408,12 +451,12 @@ generate_http_config() {
     echo "---"
     echo ""
 
-    apply_outbound_config "$name" "http"
+    apply_outbound_config "$name" "http" "$existing_rule"
 }
 
 # 应用出站配置 - 极简稳定版本
 apply_outbound_config() {
-    local name="$1" type="$2"
+    local name="$1" type="$2" existing_rule="${3:-}"
 
     echo "是否将此配置应用到 Hysteria2？ [y/N]"
     read -r apply_config
@@ -422,7 +465,7 @@ apply_outbound_config() {
         echo -e "${BLUE}[INFO]${NC} 开始应用出站配置: $name ($type)"
 
         # 使用极简稳定的方法
-        if apply_outbound_simple "$name" "$type"; then
+        if apply_outbound_simple "$name" "$type" "$existing_rule"; then
             echo -e "${GREEN}[SUCCESS]${NC} 出站配置已添加：$name ($type)"
 
             # 询问是否重启服务
@@ -578,7 +621,7 @@ delete_existing_rule_silent() {
 
 # 极简稳定的配置应用函数
 apply_outbound_simple() {
-    local name="$1" type="$2"
+    local name="$1" type="$2" existing_rule="${3:-}"
 
     echo -e "${BLUE}[INFO]${NC} 检查配置文件: $HYSTERIA_CONFIG"
 
@@ -588,38 +631,13 @@ apply_outbound_simple() {
         return 1
     fi
 
-    # 检查同类型规则冲突
-    local existing_rule
-    if existing_rule=$(check_existing_outbound_type "$type"); then
-        echo ""
-        echo -e "${YELLOW}⚠️  冲突检测 ⚠️${NC}"
-        echo -e "${YELLOW}检测到现有的 $type 类型规则: ${CYAN}$existing_rule${NC}"
-        echo -e "${YELLOW}根据系统设计原则，每种类型只能有一个出站规则${NC}"
-        echo ""
-        echo -e "${BLUE}可选操作：${NC}"
-        echo -e "${GREEN}1.${NC} 覆盖现有规则 ${CYAN}$existing_rule${NC} (推荐)"
-        echo -e "${RED}2.${NC} 取消本次添加操作"
-        echo ""
-        read -p "请选择操作 [1-2]: " choice
-
-        case $choice in
-            1)
-                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $type 规则: $existing_rule"
-                # 先删除现有同类型规则 (静默删除，不需要用户确认)
-                if ! delete_existing_rule_silent "$existing_rule"; then
-                    echo -e "${RED}[ERROR]${NC} 删除现有规则失败"
-                    return 1
-                fi
-                ;;
-            2)
-                echo -e "${BLUE}[INFO]${NC} 取消添加操作"
-                return 0
-                ;;
-            *)
-                echo -e "${RED}[ERROR]${NC} 无效选择，取消添加"
-                return 1
-                ;;
-        esac
+    # 如果有要覆盖的规则，先删除它
+    if [[ -n "$existing_rule" ]]; then
+        echo -e "${BLUE}[INFO]${NC} 删除现有规则: $existing_rule"
+        if ! delete_existing_rule_silent "$existing_rule"; then
+            echo -e "${RED}[ERROR]${NC} 删除现有规则失败"
+            return 1
+        fi
     fi
 
     # 直接操作，不创建不必要的备份
