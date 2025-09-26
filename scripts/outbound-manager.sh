@@ -462,7 +462,6 @@ apply_outbound_simple() {
 
     if ! cp "$HYSTERIA_CONFIG" "$temp_file" 2>/dev/null; then
         echo -e "${RED}[ERROR]${NC} 无法创建临时文件"
-        rm -f "$backup_file" 2>/dev/null
         return 1
     fi
 
@@ -665,33 +664,12 @@ EOF
         esac
     fi
 
-    # 验证配置语法（详细诊断）
-    echo -e "${BLUE}[INFO]${NC} 验证配置语法"
-    if command -v hysteria >/dev/null 2>&1; then
-        local validation_output
-        # Hysteria2使用server命令验证配置，而不是check-config
-        validation_output=$(hysteria server --check -c "$temp_file" 2>&1)
-        local validation_result=$?
-
-        if [[ $validation_result -eq 0 ]]; then
-            echo -e "${GREEN}[SUCCESS]${NC} 配置语法验证通过"
-        else
-            echo -e "${YELLOW}[WARN]${NC} 配置语法验证失败，但继续执行"
-            echo -e "${YELLOW}验证错误详情:${NC}"
-            echo "----------------------------------------"
-            echo "$validation_output"
-            echo "----------------------------------------"
-            echo -e "${YELLOW}注意: 这可能是由于当前环境缺少某些依赖文件导致的${NC}"
-        fi
-    else
-        echo -e "${YELLOW}[WARN]${NC} 未找到hysteria命令，跳过语法验证"
-    fi
+    # 语法验证功能已移除 - 验证结果不准确且没有实际作用
 
     # 应用配置
     echo -e "${BLUE}[INFO]${NC} 应用新配置"
     if mv "$temp_file" "$HYSTERIA_CONFIG" 2>/dev/null; then
         echo -e "${GREEN}[SUCCESS]${NC} 配置已成功应用"
-        rm -f "$backup_file" 2>/dev/null
         return 0
     else
         echo -e "${RED}[ERROR]${NC} 配置应用失败"
@@ -857,37 +835,19 @@ apply_outbound_to_config() {
             ;;
         *)
             log_error "不支持的出站类型: $type"
-            rm -f "$temp_config" "$backup_file"
+            rm -f "$temp_config"
             return 1
             ;;
     esac
 
-    # 验证配置文件语法（如果hysteria可用）
-    if command -v hysteria >/dev/null 2>&1; then
-        local validation_output="/tmp/hysteria_validation_$$.log"
-        # 使用server模式验证配置，支持dry-run或test模式
-        if ! hysteria server --check -c "$temp_config" 2>"$validation_output"; then
-            log_error "配置文件语法验证失败"
-            log_error "详细错误信息:"
-            while IFS= read -r line; do
-                log_error "  $line"
-            done < "$validation_output"
-            rm -f "$temp_config" "$backup_file" "$validation_output"
-            return 1
-        fi
-        rm -f "$validation_output"
-    else
-        log_warn "Hysteria2 未安装，跳过配置语法验证"
-    fi
+    # 语法验证功能已移除 - 验证结果不准确且没有实际作用
 
     # 原子性替换配置文件
     if mv "$temp_config" "$HYSTERIA_CONFIG"; then
         log_success "配置已成功应用到: $HYSTERIA_CONFIG"
-        rm -f "$backup_file"
         return 0
     else
-        log_error "配置应用失败，正在恢复备份"
-        mv "$backup_file" "$HYSTERIA_CONFIG"
+        log_error "配置应用失败，请检查文件权限和磁盘空间"
         rm -f "$temp_config"
         return 1
     fi

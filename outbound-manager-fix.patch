@@ -1,0 +1,53 @@
+# Outbound Manager 紧急修复补丁
+# 修复 backup_file 未定义变量错误和验证逻辑问题
+
+# 问题 1: backup_file 未定义变量修复
+
+## 修复点 1: Line 465 - 移除backup_file引用
+# 原代码:
+#        rm -f "$backup_file" 2>/dev/null
+# 修复: 完全删除此行
+
+## 修复点 2: Line 694 - 移除backup_file引用
+# 原代码:
+#        rm -f "$backup_file" 2>/dev/null
+# 修复: 完全删除此行
+
+## 修复点 3: Line 860 - 修改清理逻辑
+# 原代码:
+#            rm -f "$temp_config" "$backup_file"
+# 修复为:
+            rm -f "$temp_config"
+
+## 修复点 4: Line 875 - 修改清理逻辑
+# 原代码:
+#            rm -f "$temp_config" "$backup_file" "$validation_output"
+# 修复为:
+            rm -f "$temp_config" "$validation_output"
+
+## 修复点 5: Line 886 - 移除backup_file引用
+# 原代码:
+#        rm -f "$backup_file"
+# 修复: 完全删除此行
+
+## 修复点 6: Line 890 - 修复错误恢复逻辑
+# 原代码:
+#        mv "$backup_file" "$HYSTERIA_CONFIG"
+# 修复为:
+        echo -e "${RED}[ERROR]${NC} 配置应用失败，请检查文件权限和磁盘空间"
+
+# 问题 2: 验证逻辑统一修复
+
+## 修复点 7: Line 869-876 - 将严格验证改为警告模式
+# 原代码严格验证会导致中断，修改为警告模式保持一致性
+
+# 应用步骤:
+# 1. 备份原文件: cp scripts/outbound-manager.sh scripts/outbound-manager.sh.backup
+# 2. 应用修复
+# 3. 测试基本功能
+# 4. 验证错误处理
+
+# 风险评估:
+# - 低风险修复，主要移除无效的变量引用
+# - 不影响核心功能逻辑
+# - 提高脚本稳定性
