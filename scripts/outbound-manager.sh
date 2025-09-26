@@ -22,16 +22,14 @@ fi
 if [[ -z "${OUTBOUND_TEMPLATES_DIR:-}" ]]; then
     readonly OUTBOUND_TEMPLATES_DIR="$SCRIPT_DIR/outbound-templates"
 fi
-if [[ -z "${BACKUP_DIR:-}" ]]; then
-    readonly BACKUP_DIR="/var/backups/s-hy2/outbound"
-fi
+# 备份功能已移除
 
 # 初始化出站管理
 init_outbound_manager() {
     log_info "初始化出站规则管理器"
 
     # 创建模板目录
-    mkdir -p "$OUTBOUND_TEMPLATES_DIR" "$BACKUP_DIR"
+    mkdir -p "$OUTBOUND_TEMPLATES_DIR"
 
     # 创建基础模板（如果不存在）
     create_default_templates
@@ -121,7 +119,7 @@ show_outbound_menu() {
     echo -e "${GREEN}3.${NC} 使用模板配置"
     echo -e "${GREEN}4.${NC} 修改现有配置"
     echo -e "${GREEN}5.${NC} 测试出站连通性"
-    echo -e "${GREEN}6.${NC} 备份和恢复配置"
+    # 备份功能已移除
     echo -e "${RED}0.${NC} 返回主菜单"
     echo ""
 }
@@ -672,7 +670,7 @@ EOF
     if command -v hysteria >/dev/null 2>&1; then
         local validation_output
         # Hysteria2使用server命令验证配置，而不是check-config
-        validation_output=$(hysteria server -c "$temp_file" --dry-run 2>&1 || hysteria server -c "$temp_file" -t 2>&1)
+        validation_output=$(hysteria server --check -c "$temp_file" 2>&1)
         local validation_result=$?
 
         if [[ $validation_result -eq 0 ]]; then
@@ -696,8 +694,7 @@ EOF
         rm -f "$backup_file" 2>/dev/null
         return 0
     else
-        echo -e "${RED}[ERROR]${NC} 配置应用失败，恢复备份"
-        mv "$backup_file" "$HYSTERIA_CONFIG" 2>/dev/null
+        echo -e "${RED}[ERROR]${NC} 配置应用失败"
         rm -f "$temp_file" 2>/dev/null
         return 1
     fi
@@ -851,16 +848,7 @@ apply_outbound_to_config() {
     fi
     log_info "配置文件复制成功"
 
-    # 创建配置备份
-    local backup_file
-    log_info "创建配置备份..."
-    backup_file="/tmp/hysteria_backup_$$_$(date +%s).yaml"
-    if ! cp "$HYSTERIA_CONFIG" "$backup_file"; then
-        log_error "无法创建配置备份"
-        rm -f "$temp_config"
-        return 1
-    fi
-    log_info "配置备份已创建: $backup_file"
+    # 备份功能已移除，直接应用配置
 
     # 智能合并配置
     case $type in
@@ -878,7 +866,7 @@ apply_outbound_to_config() {
     if command -v hysteria >/dev/null 2>&1; then
         local validation_output="/tmp/hysteria_validation_$$.log"
         # 使用server模式验证配置，支持dry-run或test模式
-        if ! hysteria server -c "$temp_config" --dry-run 2>"$validation_output" && ! hysteria server -c "$temp_config" -t 2>"$validation_output"; then
+        if ! hysteria server --check -c "$temp_config" 2>"$validation_output"; then
             log_error "配置文件语法验证失败"
             log_error "详细错误信息:"
             while IFS= read -r line; do
@@ -964,25 +952,7 @@ generate_http_yaml_config() {
 }
 
 # 备份当前配置
-backup_current_config() {
-    if [[ -f "$HYSTERIA_CONFIG" ]]; then
-        # 确保备份目录存在并且可写
-        if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
-            # 如果无法创建备份目录，使用临时目录
-            BACKUP_DIR="/tmp/s-hy2-backup"
-            mkdir -p "$BACKUP_DIR" 2>/dev/null
-        fi
-
-        local backup_file="$BACKUP_DIR/config-$(date +%Y%m%d_%H%M%S).yaml"
-        if cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null; then
-            log_info "配置已备份到: $backup_file"
-        else
-            log_warn "备份失败，将使用简单备份方式"
-            backup_file="/tmp/hysteria_backup_$(date +%s).yaml"
-            cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null || log_error "备份失败"
-        fi
-    fi
-}
+# 备份功能已移除
 
 # 使用模板配置
 use_template_config() {
@@ -1028,7 +998,7 @@ apply_template() {
     read -r use_template
 
     if [[ $use_template =~ ^[Yy]$ ]]; then
-        backup_current_config
+        # 备份功能已移除
 
         # 这里需要实际的模板应用逻辑
         log_success "模板配置已应用: $template"
@@ -1334,8 +1304,7 @@ delete_outbound_rule() {
             fi
         fi
     else
-        echo -e "${RED}[ERROR]${NC} 配置应用失败，恢复备份"
-        mv "$backup_file" "$HYSTERIA_CONFIG" 2>/dev/null
+        echo -e "${RED}[ERROR]${NC} 配置应用失败"
         return 1
     fi
 
@@ -1376,66 +1345,13 @@ show_outbound_details() {
 }
 
 # 备份和恢复配置
-backup_restore_config() {
-    echo -e "${BLUE}=== 备份和恢复配置 ===${NC}"
-    echo ""
-    echo "1. 创建配置备份"
-    echo "2. 恢复配置备份"
-    echo "3. 查看备份列表"
-    echo ""
-
-    local choice
-    read -p "请选择操作 [1-3]: " choice
-
-    case $choice in
-        1) backup_current_config ;;
-        2) restore_config_backup ;;
-        3) list_config_backups ;;
-        *)
-            log_error "无效选择"
-            return 1
-            ;;
-    esac
-}
+# 备份功能已移除
 
 # 恢复配置备份
-restore_config_backup() {
-    list_config_backups
-    echo ""
-    read -p "请输入要恢复的备份文件名: " backup_file
-
-    local backup_path="$BACKUP_DIR/$backup_file"
-    if [[ ! -f "$backup_path" ]]; then
-        log_error "备份文件不存在: $backup_file"
-        return 1
-    fi
-
-    echo "是否恢复此备份？这将覆盖当前配置。 [y/N]"
-    read -r restore_backup
-
-    if [[ $restore_backup =~ ^[Yy]$ ]]; then
-        cp "$backup_path" "$HYSTERIA_CONFIG"
-        log_success "配置已恢复"
-
-        echo "是否重启 Hysteria2 服务？ [y/N]"
-        read -r restart_service
-
-        if [[ $restart_service =~ ^[Yy]$ ]]; then
-            systemctl restart hysteria-server
-            log_success "服务已重启"
-        fi
-    fi
-}
+# 备份功能已移除
 
 # 列出配置备份
-list_config_backups() {
-    echo -e "${GREEN}可用的配置备份：${NC}"
-    if [[ -d "$BACKUP_DIR" ]]; then
-        ls -la "$BACKUP_DIR"/*.yaml 2>/dev/null || echo "没有找到备份文件"
-    else
-        echo "备份目录不存在"
-    fi
-}
+# 备份功能已移除
 
 # 主出站管理函数
 manage_outbound() {
@@ -1453,7 +1369,7 @@ manage_outbound() {
             3) use_template_config ;;
             4) modify_outbound_config ;;
             5) test_outbound_connectivity ;;
-            6) backup_restore_config ;;
+            # 6) 备份功能已移除 ;;
             0)
                 log_info "返回主菜单"
                 break
