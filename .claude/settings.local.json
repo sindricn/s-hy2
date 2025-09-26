@@ -21,7 +21,8 @@
       "Bash(git check-ignore:*)",
       "WebFetch(domain:v2.hysteria.network)",
       "Bash(hysteria:*)",
-      "Read(//c/**)"
+      "Read(//c/**)",
+      "Bash(tree:*)"
     ],
     "deny": []
   }

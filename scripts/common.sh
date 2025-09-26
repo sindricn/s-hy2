@@ -270,6 +270,70 @@ require_root() {
     fi
 }
 
+# 标准化错误处理函数
+setup_error_handling() {
+    # 统一的错误处理设置
+    set -uo pipefail
+
+    # 捕获ERR信号并调用错误处理函数
+    trap 'handle_script_error $? $LINENO "$BASH_COMMAND" "${FUNCNAME[*]:-main}"' ERR
+}
+
+# 错误处理函数
+handle_script_error() {
+    local exit_code=$1
+    local line_number=$2
+    local command=$3
+    local function_stack=$4
+
+    log_error "脚本执行错误:"
+    log_error "  文件: ${BASH_SOURCE[1]:-$0}"
+    log_error "  行号: $line_number"
+    log_error "  命令: $command"
+    log_error "  函数栈: $function_stack"
+    log_error "  退出码: $exit_code"
+
+    # 在某些情况下不退出，让调用者处理
+    if [[ "${CONTINUE_ON_ERROR:-false}" == "true" ]]; then
+        return $exit_code
+    fi
+
+    exit $exit_code
+}
+
+# 安全执行函数 - 用于可能失败的操作
+safe_execute() {
+    local command_description="$1"
+    shift
+
+    log_info "执行: $command_description"
+
+    if "$@"; then
+        log_success "$command_description - 成功"
+        return 0
+    else
+        local exit_code=$?
+        log_error "$command_description - 失败 (退出码: $exit_code)"
+        return $exit_code
+    fi
+}
+
+# 标准化脚本初始化函数
+init_script() {
+    local script_description="${1:-Shell脚本}"
+
+    # 设置错误处理
+    setup_error_handling
+
+    # 初始化日志系统
+    init_logging
+
+    log_debug "开始执行: $script_description"
+    log_debug "脚本路径: ${BASH_SOURCE[1]:-$0}"
+    log_debug "执行用户: $(whoami)"
+    log_debug "工作目录: $(pwd)"
+}
+
 # 等待用户确认
 wait_for_user() {
     echo ""

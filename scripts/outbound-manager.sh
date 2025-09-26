@@ -1,13 +1,15 @@
 #!/bin/bash
 
 # Hysteria2 出站规则管理模块
-# 用于配置和管理 Hysteria2 的出站规则
+# 功能: 配置和管理 Hysteria2 的出站规则
+# 支持: Direct、SOCKS5、HTTP 代理类型
+# 特性: 类型唯一性强制、具体参数修改、智能冲突检测
 
 # 适度的错误处理
 set -uo pipefail
 
 # 加载公共库
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/common.sh" ]]; then
     source "$SCRIPT_DIR/common.sh"
 else
@@ -31,7 +33,7 @@ init_outbound_manager() {
 # 显示出站管理菜单
 show_outbound_menu() {
     clear
-    echo -e "${CYAN}=== Hysteria2 出站规则配置 ===${NC}"
+    echo -e "${CYAN}=== Hysteria2 出站规则 ===${NC}"
     echo ""
     echo -e "${GREEN}1.${NC} 查看当前出站配置"
     echo -e "${GREEN}2.${NC} 添加新的出站规则"
@@ -184,8 +186,7 @@ add_direct_outbound() {
     fi
 
     # 是否绑定特定网卡
-    echo "是否绑定特定网卡？ [y/N]"
-    read -r bind_interface
+    read -p "是否绑定特定网卡？ [y/N]: " bind_interface
 
     if [[ $bind_interface =~ ^[Yy]$ ]]; then
         echo "可用网卡："
@@ -204,8 +205,7 @@ add_direct_outbound() {
     fi
 
     # 是否绑定特定 IP
-    echo "是否绑定特定 IP 地址？ [y/N]"
-    read -r bind_ip
+    read -p "是否绑定特定 IP 地址？ [y/N]: " bind_ip
 
     if [[ $bind_ip =~ ^[Yy]$ ]]; then
         read -p "IPv4 地址 (可选): " ipv4
@@ -240,8 +240,7 @@ add_socks5_outbound() {
         return 1
     fi
 
-    echo "是否需要认证？ [y/N]"
-    read -r need_auth
+    read -p "是否需要认证？ [y/N]: " need_auth
 
     if [[ $need_auth =~ ^[Yy]$ ]]; then
         read -p "用户名: " username
@@ -280,8 +279,7 @@ add_http_outbound() {
         read -p "HTTP 代理 URL (例: http://user:pass@proxy.com:8080): " url
     else
         read -p "HTTPS 代理 URL (例: https://user:pass@proxy.com:8080): " url
-        echo "是否跳过 TLS 验证？ [y/N]"
-        read -r skip_tls
+        read -p "是否跳过 TLS 验证？ [y/N]: " skip_tls
         if [[ $skip_tls =~ ^[Yy]$ ]]; then
             insecure="true"
         else
@@ -374,8 +372,7 @@ generate_http_config() {
 apply_outbound_config() {
     local name="$1" type="$2" existing_rule="${3:-}"
 
-    echo "是否将此配置应用到 Hysteria2？ [y/N]"
-    read -r apply_config
+    read -p "是否将此配置应用到 Hysteria2？ [y/N]: " apply_config
 
     if [[ $apply_config =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}[INFO]${NC} 开始应用出站配置: $name ($type)"
@@ -385,8 +382,7 @@ apply_outbound_config() {
             echo -e "${GREEN}[SUCCESS]${NC} 出站配置已添加：$name ($type)"
 
             # 询问是否重启服务
-            echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
-            read -r restart_service
+            read -p "是否重启 Hysteria2 服务以应用配置？ [y/N]: " restart_service
 
             if [[ $restart_service =~ ^[Yy]$ ]]; then
                 if systemctl restart hysteria-server 2>/dev/null; then
@@ -1091,6 +1087,7 @@ delete_outbound_rule() {
     echo -e "${RED}[WARNING]${NC} 即将删除出站规则: $rule_name"
     echo -e "${YELLOW}此操作不可逆，请确认操作${NC}"
     echo -n "确认删除？ [y/N]: "
+    local confirm
     read -r confirm
 
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
@@ -1188,8 +1185,7 @@ delete_outbound_rule() {
 
         # 询问是否重启服务
         echo ""
-        echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
-        read -r restart_service
+        read -p "是否重启 Hysteria2 服务以应用配置？ [y/N]: " restart_service
 
         if [[ $restart_service =~ ^[Yy]$ ]]; then
             if systemctl restart hysteria-server 2>/dev/null; then
@@ -1204,8 +1200,7 @@ delete_outbound_rule() {
     fi
 
     echo ""
-    echo "按回车键继续..."
-    read -r
+    wait_for_user
 }
 
 
@@ -1425,8 +1420,7 @@ modify_config_field() {
 # 询问是否重启服务
 ask_restart_service() {
     echo ""
-    echo "是否重启 Hysteria2 服务以应用配置？ [y/N]"
-    read -r restart_choice
+    read -p "是否重启 Hysteria2 服务以应用配置？ [y/N]: " restart_choice
 
     if [[ $restart_choice =~ ^[Yy]$ ]]; then
         if systemctl restart hysteria-server 2>/dev/null; then
