@@ -456,14 +456,7 @@ apply_outbound_simple() {
         return 1
     fi
 
-    # 创建简单的备份
-    local backup_file="/tmp/hysteria_backup_$$_$(date +%s).yaml"
-    echo -e "${BLUE}[INFO]${NC} 创建配置备份: $backup_file"
-
-    if ! cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null; then
-        echo -e "${RED}[ERROR]${NC} 无法创建备份文件"
-        return 1
-    fi
+    # 直接操作，不创建不必要的备份
 
     # 创建临时文件
     local temp_file="/tmp/hysteria_temp_$$_$(date +%s).yaml"
@@ -562,18 +555,77 @@ EOF
         # 替换原文件
         mv "$temp_file2" "$temp_file"
 
-        # 处理ACL规则
-        echo -e "${BLUE}[INFO]${NC} 检查ACL路由规则"
+        # 智能ACL规则同步
+        echo -e "${BLUE}[INFO]${NC} 同步ACL路由规则"
         if grep -q "^[[:space:]]*acl:" "$temp_file" 2>/dev/null; then
-            echo -e "${YELLOW}[WARN]${NC} 检测到现有ACL规则，请手动添加路由规则"
+            echo -e "${BLUE}[INFO]${NC} 检测到现有ACL规则，智能添加路由条目"
+
+            # 创建ACL添加的临时文件
+            local temp_acl="/tmp/hysteria_acl_add_$$_$(date +%s).yaml"
+            local in_acl_section=false
+            local in_inline_section=false
+            local acl_base_indent=""
+            local added_acl_rule=false
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                # 检测ACL节点
+                if [[ "$line" =~ ^[[:space:]]*acl: ]]; then
+                    in_acl_section=true
+                    acl_base_indent=$(echo "$line" | sed 's/acl:.*//')
+                    echo "$line" >> "$temp_acl"
+                    continue
+                fi
+
+                # 在ACL节点中
+                if [[ "$in_acl_section" == true ]]; then
+                    # 检查是否离开ACL节点
+                    if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(inline|file): ]]; then
+                        local line_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                        if [[ ${#line_indent} -le ${#acl_base_indent} ]]; then
+                            # 离开ACL节点前，如果还没添加规则，则添加
+                            if [[ "$added_acl_rule" == false ]]; then
+                                echo "    - ${name}(all)  # 新增出站规则" >> "$temp_acl"
+                                added_acl_rule=true
+                            fi
+                            in_acl_section=false
+                            in_inline_section=false
+                        fi
+                    fi
+
+                    # 检测inline节点
+                    if [[ "$line" =~ ^[[:space:]]*inline:[[:space:]]*$ ]]; then
+                        in_inline_section=true
+                        echo "$line" >> "$temp_acl"
+                        continue
+                    fi
+
+                    # 在inline节点中，添加新规则（在第一个条目后）
+                    if [[ "$in_inline_section" == true ]] && [[ "$added_acl_rule" == false ]] && [[ "$line" =~ ^[[:space:]]*-[[:space:]] ]]; then
+                        echo "$line" >> "$temp_acl"
+                        echo "    - ${name}(all)  # 新增出站规则" >> "$temp_acl"
+                        added_acl_rule=true
+                        continue
+                    fi
+                fi
+
+                echo "$line" >> "$temp_acl"
+            done < "$temp_file"
+
+            # 如果文件末尾仍在ACL中且未添加规则
+            if [[ "$in_acl_section" == true ]] && [[ "$added_acl_rule" == false ]]; then
+                echo "    - ${name}(all)  # 新增出站规则" >> "$temp_acl"
+            fi
+
+            # 替换原文件
+            mv "$temp_acl" "$temp_file"
         else
-            echo -e "${BLUE}[INFO]${NC} 添加基本ACL规则"
+            echo -e "${BLUE}[INFO]${NC} 创建新的ACL规则配置"
             cat >> "$temp_file" << EOF
 
 # ACL规则 - 路由配置
 acl:
   inline:
-    - $name(all)  # 使用新增出站规则
+    - ${name}(all)  # 新增出站规则路由
 EOF
         fi
 
@@ -1183,57 +1235,77 @@ delete_outbound_rule() {
 
     echo -e "${BLUE}[INFO]${NC} 开始删除出站规则: $rule_name"
 
-    # 创建简单备份
-    local backup_file="/tmp/hysteria_delete_backup_$(date +%s).yaml"
-    if ! cp "$HYSTERIA_CONFIG" "$backup_file" 2>/dev/null; then
-        echo -e "${RED}[ERROR]${NC} 无法创建备份，删除操作取消"
-        return 1
-    fi
-    echo -e "${BLUE}[INFO]${NC} 配置已备份到: $backup_file"
+    # 直接删除，不创建不必要的备份
 
     # 创建临时文件
     local temp_config="/tmp/hysteria_delete_temp_$(date +%s).yaml"
 
-    # 简化的删除逻辑：删除outbound规则和相关ACL条目
-    local in_target_rule=false
-    local skip_line=false
+    # 智能删除逻辑：完整删除outbound规则和相关ACL条目
+    local in_outbound_rule=false
+    local in_acl_section=false
+    local acl_base_indent=""
+    local delete_acl_inline=false
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        skip_line=false
+        local should_keep=true
 
-        # 检查是否是目标规则的注释（在outbounds或其他地方）
+        # 1. 删除包含规则名的注释
         if [[ "$line" =~ ^[[:space:]]*#.*${rule_name} ]]; then
-            skip_line=true
+            should_keep=false
         fi
 
-        # 检查是否是要删除的outbound规则开始
+        # 2. 检测outbound规则块
         if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
-            in_target_rule=true
-            skip_line=true
-        fi
-
-        # 如果在目标规则块中
-        if [[ "$in_target_rule" == true ]]; then
-            # 检查是否遇到下一个规则或者其他顶级节点
-            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]]; then
-                in_target_rule=false  # 遇到下一个规则，结束删除
-                skip_line=false      # 保留这一行
-            elif [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode): ]]; then
-                in_target_rule=false  # 遇到其他顶级节点，结束删除
-                skip_line=false      # 保留这一行
+            in_outbound_rule=true
+            should_keep=false
+        elif [[ "$in_outbound_rule" == true ]]; then
+            # 在outbound规则块中，检查是否结束
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
+                in_outbound_rule=false
+                should_keep=true
             else
-                skip_line=true       # 跳过规则块内的行
+                should_keep=false  # 删除outbound规则块内的所有行
             fi
         fi
 
-        # 检查ACL中包含目标规则名的行
-        if [[ ! "$skip_line" == true ]] && [[ "$line" =~ $rule_name ]]; then
-            # 如果这行包含规则名，可能是ACL条目，跳过
-            skip_line=true
+        # 3. 检测ACL节点
+        if [[ "$line" =~ ^[[:space:]]*acl:[[:space:]]*$ ]]; then
+            in_acl_section=true
+            acl_base_indent=$(echo "$line" | sed 's/acl:.*//')
+            should_keep=true
+        elif [[ "$line" =~ ^[[:space:]]*acl: ]]; then
+            in_acl_section=true
+            acl_base_indent=$(echo "$line" | sed 's/acl:.*//')
+            should_keep=true
+        elif [[ "$in_acl_section" == true ]]; then
+            # 检查是否离开ACL节点
+            if [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(inline|file): ]]; then
+                local line_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                if [[ ${#line_indent} -le ${#acl_base_indent} ]]; then
+                    in_acl_section=false
+                    should_keep=true
+                fi
+            fi
+
+            # 在ACL节点中处理
+            if [[ "$in_acl_section" == true ]]; then
+                # 检测inline节点开始
+                if [[ "$line" =~ ^[[:space:]]*inline:[[:space:]]*$ ]]; then
+                    delete_acl_inline=false
+                    should_keep=true
+                # 在inline节点中检查包含目标规则名的行
+                elif [[ "$line" =~ ${rule_name} ]]; then
+                    should_keep=false  # 删除ACL中包含目标规则名的条目
+                elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+                    should_keep=false  # 删除单独的规则名条目
+                else
+                    should_keep=true
+                fi
+            fi
         fi
 
-        # 写入需要保留的行
-        if [[ ! "$skip_line" == true ]]; then
+        # 写入保留的行
+        if [[ "$should_keep" == true ]]; then
             echo "$line" >> "$temp_config"
         fi
     done < "$HYSTERIA_CONFIG"
