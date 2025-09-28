@@ -29,7 +29,21 @@
       "Bash(RULES_LIBRARY=\"/tmp/hysteria-rules/rules-library.yaml\" bash -c '\nsource scripts/outbound-manager.sh\necho \"\"=== 测试查看规则功能 ===\"\"\nview_outbound_rules\necho \"\"\"\"\necho \"\"=== 测试类型冲突检测 ===\"\"\necho \"\"检查 socks5 类型冲突:\"\"\ncheck_rule_type_conflict \"\"socks5\"\"\necho \"\"\"\"\necho \"\"检查 direct 类型冲突:\"\"\ncheck_rule_type_conflict \"\"direct\"\"\necho \"\"\"\"\necho \"\"检查不存在类型 (http) 冲突:\"\"\ncheck_rule_type_conflict \"\"http\"\"\n')",
       "Bash(RULES_LIBRARY=\"/tmp/hysteria-rules/rules-library.yaml\" bash -c '\nsource scripts/outbound-manager.sh\ninit_rules_library > /dev/null 2>&1\necho \"\"=== 测试类型冲突检测 ===\"\"\necho -n \"\"检查 socks5 类型冲突: \"\"\nif result=$(check_rule_type_conflict \"\"socks5\"\"); then\n    echo \"\"找到冲突规则: $result\"\"\nelse\n    echo \"\"无冲突\"\"\nfi\n\necho -n \"\"检查 direct 类型冲突: \"\"\nif result=$(check_rule_type_conflict \"\"direct\"\"); then\n    echo \"\"找到冲突规则: $result\"\"\nelse\n    echo \"\"无冲突\"\"\nfi\n\necho -n \"\"检查 http 类型冲突: \"\"\nif result=$(check_rule_type_conflict \"\"http\"\"); then\n    echo \"\"找到冲突规则: $result\"\"\nelse\n    echo \"\"无冲突\"\"\nfi\n')",
       "Bash(head:*)",
-      "Bash(do echo \"=== $script ===\")"
+      "Bash(do echo \"=== $script ===\")",
+      "Bash(cat:*)",
+      "Bash(__NEW_LINE__ RULES_LIBRARY=\"/tmp/hysteria-test-rules/rules-library.yaml\" bash -c '\nsource scripts/outbound-manager.sh\necho \"\"调用 view_outbound_rules 函数:\"\"\nview_outbound_rules 2>/dev/null || echo \"\"函数执行出错\"\"\n')",
+      "Bash(__NEW_LINE__ find /tmp -name \"*rules*\" -type f)",
+      "Bash(__NEW_LINE__ ls -la /tmp/hysteria-rules/)",
+      "Bash(__NEW_LINE__ cat /tmp/hysteria-rules/rules-library.yaml)",
+      "Bash(__NEW_LINE__ tail -10 /tmp/hysteria-rules/rules-library.yaml)",
+      "Bash(__NEW_LINE__ bash -c 'cd /c/code/s-hy2 && source scripts/outbound-manager.sh && view_outbound_rules')",
+      "Bash(__NEW_LINE__ timeout 10 bash -c 'cd /c/code/s-hy2 && source scripts/outbound-manager.sh && echo -e \"\"\"\"sk5\\n测试描述\\n1\\n\"\"\"\" | add_outbound_rule_new')",
+      "Bash(__NEW_LINE__ echo \"1. 查看功能测试:\")",
+      "Bash(__NEW_LINE__ echo \"\")",
+      "Bash(__NEW_LINE__ echo \"2. 重复检测功能测试:\")",
+      "Bash(__NEW_LINE__ echo \"sk5\")",
+      "Bash(__NEW_LINE__ echo \"3. 类型冲突检测测试:\")",
+      "Bash(__NEW_LINE__ bash -c 'cd /c/code/s-hy2 && source scripts/outbound-manager.sh && check_rule_type_conflict \"\"\"\"socks5\"\"\"\"')"
     ],
     "deny": []
   }
