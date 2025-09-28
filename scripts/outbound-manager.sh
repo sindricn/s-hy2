@@ -61,7 +61,7 @@ view_current_outbound() {
     if grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
         echo -e "${GREEN}出站规则：${NC}"
         # 使用更精确的sed匹配，支持缩进
-        sed -n '/^[[:space:]]*outbounds:/,/^[[:space:]]*[a-zA-Z]/p' "$HYSTERIA_CONFIG" | sed '$d'
+        sed -n '/^[[:space:]]*outbounds:/,/^[a-zA-Z]/p' "$HYSTERIA_CONFIG" | sed '$d'
         echo ""
 
         # 显示出站规则统计
@@ -400,6 +400,53 @@ apply_outbound_config() {
     else
         echo -e "${BLUE}[INFO]${NC} 操作已取消"
     fi
+}
+
+# 检查规则库中的类型冲突
+check_rule_type_conflict() {
+    local target_type="$1"
+    init_rules_library
+
+    if [[ ! -f "$RULES_LIBRARY" ]]; then
+        return 0  # 文件不存在，没有冲突
+    fi
+
+    local in_rules_section=false
+    local current_rule_name=""
+    local current_rule_type=""
+
+    while IFS= read -r line; do
+        # 检测rules节点
+        if [[ "$line" =~ ^rules:[[:space:]]*$ ]]; then
+            in_rules_section=true
+            continue
+        fi
+
+        # 离开rules节点 - 只有0级缩进的键才退出
+        if [[ "$in_rules_section" == true ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+            break
+        fi
+
+        # 在rules节点中
+        if [[ "$in_rules_section" == true ]]; then
+            # 检测规则名（2级缩进）
+            if [[ "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]+):[[:space:]]*$ ]]; then
+                current_rule_name="${BASH_REMATCH[1]}"
+                current_rule_type=""
+            fi
+            # 检测规则类型（4级缩进）
+            if [[ "$line" =~ ^[[:space:]]{4}type:[[:space:]]*(.+)$ ]]; then
+                current_rule_type="${BASH_REMATCH[1]}"
+                # 如果类型匹配，返回规则名
+                if [[ "$current_rule_type" == "$target_type" ]]; then
+                    echo "$current_rule_name"
+                    return 0
+                fi
+            fi
+        fi
+    done < "$RULES_LIBRARY"
+
+    return 1  # 没有找到冲突
 }
 
 # 检查现有同类型出站规则
@@ -1500,7 +1547,7 @@ view_outbound_rules() {
                 ((rule_count++))
                 echo "  $rule_count. $rule_name ✅"
             fi
-        done < <(sed -n '/^[[:space:]]*outbounds:/,/^[[:space:]]*[a-zA-Z]/p' "$HYSTERIA_CONFIG" | head -n -1)
+        done < <(sed -n '/^[[:space:]]*outbounds:/,/^[a-zA-Z]/p' "$HYSTERIA_CONFIG" | head -n -1)
 
         if [[ $rule_count -eq 0 ]]; then
             echo "  (无规则)"
@@ -1614,6 +1661,20 @@ add_outbound_rule_new() {
             return 1
             ;;
     esac
+
+    # 检查类型冲突
+    echo -e "${YELLOW}检查类型冲突...${NC}"
+    local existing_type_rule=$(check_rule_type_conflict "$rule_type")
+    if [[ -n "$existing_type_rule" ]]; then
+        echo -e "${RED}错误: 已存在 $rule_type 类型的规则: $existing_type_rule${NC}"
+        echo -e "${YELLOW}每种类型只能存在一个规则。${NC}"
+        read -p "是否要替换现有规则？ [y/N]: " replace_choice
+        if [[ ! $replace_choice =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}操作已取消${NC}"
+            return 1
+        fi
+        echo -e "${BLUE}将替换现有规则: $existing_type_rule${NC}"
+    fi
 
     # 收集配置
     local config_data=""
