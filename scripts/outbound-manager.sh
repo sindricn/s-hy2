@@ -1524,8 +1524,8 @@ view_outbound_rules() {
                 continue
             fi
 
-            # 如果遇到顶级节点且不是rules，退出rules节点
-            if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+            # 如果遇到0级缩进的节点（顶级节点），退出rules节点
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
                 local key="${BASH_REMATCH[1]}"
                 if [[ "$key" != "rules" ]]; then
                     in_rules_section=0
@@ -1578,8 +1578,8 @@ add_outbound_rule_new() {
             continue
         fi
 
-        # 检查是否已存在
-        if grep -q "^[[:space:]]*$rule_name:[[:space:]]*$" "$RULES_LIBRARY" 2>/dev/null; then
+        # 检查是否已存在（检查2级缩进的规则名）
+        if grep -q "^[[:space:]]\{2\}$rule_name:[[:space:]]*$" "$RULES_LIBRARY" 2>/dev/null; then
             echo -e "${RED}规则名称已存在${NC}"
             continue
         fi
@@ -1743,8 +1743,8 @@ apply_outbound_rule() {
             continue
         fi
 
-        # 如果遇到顶级节点且不是rules，退出rules节点
-        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+        # 如果遇到0级缩进的节点（顶级节点），退出rules节点
+        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
             local key="${BASH_REMATCH[1]}"
             if [[ "$key" != "rules" ]]; then
                 in_rules_section=0
@@ -2013,8 +2013,8 @@ modify_outbound_rule() {
             continue
         fi
 
-        # 如果遇到顶级节点且不是rules，退出rules节点
-        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+        # 如果遇到0级缩进的节点（顶级节点），退出rules节点
+        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
             local key="${BASH_REMATCH[1]}"
             if [[ "$key" != "rules" ]]; then
                 in_rules_section=0
@@ -2121,8 +2121,8 @@ delete_outbound_rule_new() {
             continue
         fi
 
-        # 如果遇到顶级节点且不是rules，退出rules节点
-        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+        # 如果遇到0级缩进的节点（顶级节点），退出rules节点
+        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
             local key="${BASH_REMATCH[1]}"
             if [[ "$key" != "rules" ]]; then
                 in_rules_section=0
