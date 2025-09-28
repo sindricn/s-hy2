@@ -22,7 +22,8 @@
       "WebFetch(domain:v2.hysteria.network)",
       "Bash(hysteria:*)",
       "Read(//c/**)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(awk:*)"
     ],
     "deny": []
   }

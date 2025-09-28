@@ -1458,9 +1458,9 @@ init_rules_library() {
     if [[ ! -f "$RULES_LIBRARY" ]]; then
         cat > "$RULES_LIBRARY" << 'EOF'
 # Hysteria2 出站规则库
-rules: {}
 version: "1.0"
 last_modified: ""
+rules: {}
 EOF
     fi
 
@@ -1506,19 +1506,33 @@ view_outbound_rules() {
     echo -e "${CYAN}📚 规则库中的规则：${NC}"
     if [[ -f "$RULES_LIBRARY" ]] && grep -q "rules:" "$RULES_LIBRARY"; then
         local lib_count=0
-        # 简单解析YAML中的规则
+        # 解析YAML中的规则（只识别rules节点下的规则）
+        local in_rules_section=0
         while IFS= read -r line; do
-            if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-                local rule_name="${BASH_REMATCH[1]}"
-                if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
-                    ((lib_count++))
-                    # 检查是否已应用
-                    local status="❌ 未应用"
-                    if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
-                        status="✅ 已应用"
-                    fi
-                    echo "  $lib_count. $rule_name $status"
+            # 检查是否进入rules节点
+            if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
+                in_rules_section=1
+                continue
+            fi
+
+            # 如果遇到顶级节点且不是rules，退出rules节点
+            if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+                local key="${BASH_REMATCH[1]}"
+                if [[ "$key" != "rules" ]]; then
+                    in_rules_section=0
                 fi
+            fi
+
+            # 在rules节点内且为2级缩进的规则名
+            if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+                local rule_name="${BASH_REMATCH[1]}"
+                ((lib_count++))
+                # 检查是否已应用
+                local status="❌ 未应用"
+                if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                    status="✅ 已应用"
+                fi
+                echo "  $lib_count. $rule_name $status"
             fi
         done < "$RULES_LIBRARY"
 
@@ -1712,16 +1726,30 @@ apply_outbound_rule() {
     local unapplied_rules=()
     local rule_count=0
 
+    local in_rules_section=0
     while IFS= read -r line; do
-        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+        # 检查是否进入rules节点
+        if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
+            in_rules_section=1
+            continue
+        fi
+
+        # 如果遇到顶级节点且不是rules，退出rules节点
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+            local key="${BASH_REMATCH[1]}"
+            if [[ "$key" != "rules" ]]; then
+                in_rules_section=0
+            fi
+        fi
+
+        # 在rules节点内且为2级缩进的规则名
+        if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
             local rule_name="${BASH_REMATCH[1]}"
-            if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
-                # 检查是否已应用
-                if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
-                    unapplied_rules+=("$rule_name")
-                    ((rule_count++))
-                    echo "$rule_count. $rule_name"
-                fi
+            # 检查是否已应用
+            if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                unapplied_rules+=("$rule_name")
+                ((rule_count++))
+                echo "$rule_count. $rule_name"
             fi
         fi
     done < "$RULES_LIBRARY"
@@ -1750,59 +1778,84 @@ apply_outbound_rule() {
 apply_rule_to_config_simple() {
     local rule_name="$1"
 
-    # 从规则库提取规则信息
-    local rule_type=$(awk -v rule="$rule_name" '
-    BEGIN { in_rule = 0 }
-    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-    in_rule && /^[[:space:]]*type:/ { gsub(/^[[:space:]]*type:[[:space:]]*/, ""); print $0; exit }
-    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
-    ' "$RULES_LIBRARY")
+    # 从规则库提取规则信息 - 使用修复的YAML解析
+    local rule_type rule_config
+
+    # 使用更准确的awk解析规则库 - 考虑YAML的层级结构
+    eval "$(awk -v rule="$rule_name" '
+    BEGIN {
+        in_rules = 0; in_rule = 0; in_config = 0
+        type = ""; config_lines = ""
+    }
+    # 检测进入rules节点
+    /^[[:space:]]*rules:[[:space:]]*$/ { in_rules = 1; next }
+    # 在rules节点内，检测规则名（2级缩进）
+    in_rules && /^[[:space:]]{2}[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ {
+        current_rule = $0
+        gsub(/^[[:space:]]*/, "", current_rule)
+        gsub(/:[[:space:]]*$/, "", current_rule)
+        if (current_rule == rule) {
+            in_rule = 1
+        } else {
+            in_rule = 0; in_config = 0
+        }
+        next
+    }
+    # 在当前规则内，提取type
+    in_rule && /^[[:space:]]*type:[[:space:]]*/ {
+        gsub(/^[[:space:]]*type:[[:space:]]*/, "", $0)
+        type = $0
+        next
+    }
+    # 在当前规则内，检测config节点
+    in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+    # 在config节点内，收集配置行
+    in_rule && in_config && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:/ {
+        if (config_lines != "") config_lines = config_lines "\\n"
+        config_lines = config_lines $0
+    }
+    # 退出rules节点或规则节点
+    in_rules && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]{2}/ { in_rules = 0 }
+    END {
+        print "rule_type=\"" type "\""
+        print "rule_config=\"" config_lines "\""
+    }
+    ' "$RULES_LIBRARY")"
 
     if [[ -z "$rule_type" ]]; then
         log_error "无法获取规则类型"
         return 1
     fi
 
-    # 提取配置
-    local config_section=$(awk -v rule="$rule_name" '
-    BEGIN { in_rule = 0; in_config = 0 }
-    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-    in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-    in_rule && in_config && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_config = 0; in_rule = 0 }
-    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
-    in_config { print $0 }
-    ' "$RULES_LIBRARY")
-
     # 备份配置
     if [[ -f "$HYSTERIA_CONFIG" ]]; then
         cp "$HYSTERIA_CONFIG" "${HYSTERIA_CONFIG}.bak.$(date +%s)" 2>/dev/null
     fi
 
-    # 应用到配置文件
+    # 应用到配置文件 - 生成正确的Hysteria2格式
     local temp_config="/tmp/hysteria_apply_$$_$(date +%s).yaml"
 
     if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
-        # 插入到现有outbounds
-        awk -v rule="$rule_name" -v type="$rule_type" -v config="$config_section" '
+        # 在现有outbounds中添加新规则
+        awk -v rule="$rule_name" -v type="$rule_type" -v config="$rule_config" '
         /^[[:space:]]*outbounds:/ {
             print $0
-            print ""
-            print "  # 规则: " rule
+            # 添加新的出站规则，确保正确的Hysteria2格式
             print "  - name: " rule
             print "    type: " type
-            print "    " type ":"
-            # 处理配置行
-            n = split(config, lines, "\n")
-            for (i = 1; i <= n; i++) {
-                if (lines[i] != "") {
-                    print "  " lines[i]
+            if (type != "" && config != "") {
+                print "    " type ":"
+                # 处理配置行，确保正确缩进（6个空格）
+                n = split(config, lines, "\\n")
+                for (i = 1; i <= n; i++) {
+                    if (lines[i] != "") {
+                        # 移除原有缩进并添加正确的6空格缩进
+                        gsub(/^[[:space:]]*/, "", lines[i])
+                        print "      " lines[i]
+                    }
                 }
             }
-            in_outbounds = 1
             next
-        }
-        in_outbounds && /^[[:space:]]*[a-zA-Z]+:[[:space:]]*$/ && !/^[[:space:]]*-/ {
-            in_outbounds = 0
         }
         { print }
         ' "$HYSTERIA_CONFIG" > "$temp_config"
@@ -1814,16 +1867,24 @@ apply_rule_to_config_simple() {
             echo "# Hysteria2 配置文件" > "$temp_config"
         fi
 
+        # 添加outbounds节点 - 正确的格式
         cat >> "$temp_config" << EOF
 
-# 出站规则配置
 outbounds:
-  # 规则: $rule_name
   - name: $rule_name
     type: $rule_type
-    $rule_type:
-$(echo "$config_section" | sed 's/^/      /')
 EOF
+
+        if [[ -n "$rule_config" ]]; then
+            echo "    $rule_type:" >> "$temp_config"
+            echo "$rule_config" | while IFS= read -r line; do
+                if [[ -n "$line" ]]; then
+                    # 移除原有缩进并添加正确的6空格缩进
+                    line=$(echo "$line" | sed 's/^[[:space:]]*//')
+                    echo "      $line" >> "$temp_config"
+                fi
+            done
+        fi
     fi
 
     # 应用配置
@@ -1872,14 +1933,28 @@ modify_outbound_rule() {
     local rules=()
     local rule_count=0
 
+    local in_rules_section=0
     while IFS= read -r line; do
-        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local rule_name="${BASH_REMATCH[1]}"
-            if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
-                rules+=("$rule_name")
-                ((rule_count++))
-                echo "$rule_count. $rule_name"
+        # 检查是否进入rules节点
+        if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
+            in_rules_section=1
+            continue
+        fi
+
+        # 如果遇到顶级节点且不是rules，退出rules节点
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+            local key="${BASH_REMATCH[1]}"
+            if [[ "$key" != "rules" ]]; then
+                in_rules_section=0
             fi
+        fi
+
+        # 在rules节点内且为2级缩进的规则名
+        if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+            local rule_name="${BASH_REMATCH[1]}"
+            rules+=("$rule_name")
+            ((rule_count++))
+            echo "$rule_count. $rule_name"
         fi
     done < "$RULES_LIBRARY"
 
@@ -1966,20 +2041,34 @@ delete_outbound_rule_new() {
     local rules=()
     local rule_count=0
 
+    local in_rules_section=0
     while IFS= read -r line; do
-        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local rule_name="${BASH_REMATCH[1]}"
-            if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
-                rules+=("$rule_name")
-                ((rule_count++))
+        # 检查是否进入rules节点
+        if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
+            in_rules_section=1
+            continue
+        fi
 
-                # 检查是否已应用
-                local status="❌ 未应用"
-                if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
-                    status="✅ 已应用"
-                fi
-                echo "$rule_count. $rule_name $status"
+        # 如果遇到顶级节点且不是rules，退出rules节点
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+            local key="${BASH_REMATCH[1]}"
+            if [[ "$key" != "rules" ]]; then
+                in_rules_section=0
             fi
+        fi
+
+        # 在rules节点内且为2级缩进的规则名
+        if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+            local rule_name="${BASH_REMATCH[1]}"
+            rules+=("$rule_name")
+            ((rule_count++))
+
+            # 检查是否已应用
+            local status="❌ 未应用"
+            if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                status="✅ 已应用"
+            fi
+            echo "$rule_count. $rule_name $status"
         fi
     done < "$RULES_LIBRARY"
 
