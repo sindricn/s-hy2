@@ -1571,8 +1571,8 @@ view_outbound_rules() {
                 continue
             fi
 
-            # 如果遇到0级缩进的节点（顶级节点），退出rules节点
-            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+            # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
+            if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
                 local key="${BASH_REMATCH[1]}"
                 if [[ "$key" != "rules" ]]; then
                     in_rules_section=0
@@ -1804,8 +1804,8 @@ apply_outbound_rule() {
             continue
         fi
 
-        # 如果遇到0级缩进的节点（顶级节点），退出rules节点
-        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+        # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
+        if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
             local key="${BASH_REMATCH[1]}"
             if [[ "$key" != "rules" ]]; then
                 in_rules_section=0
@@ -2074,8 +2074,8 @@ modify_outbound_rule() {
             continue
         fi
 
-        # 如果遇到0级缩进的节点（顶级节点），退出rules节点
-        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+        # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
+        if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
             local key="${BASH_REMATCH[1]}"
             if [[ "$key" != "rules" ]]; then
                 in_rules_section=0
@@ -2182,8 +2182,8 @@ delete_outbound_rule_new() {
             continue
         fi
 
-        # 如果遇到0级缩进的节点（顶级节点），退出rules节点
-        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]] && [[ "$in_rules_section" == "1" ]]; then
+        # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
+        if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
             local key="${BASH_REMATCH[1]}"
             if [[ "$key" != "rules" ]]; then
                 in_rules_section=0
