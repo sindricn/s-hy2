@@ -35,17 +35,11 @@ show_outbound_menu() {
     clear
     echo -e "${CYAN}=== Hysteria2 出站规则管理 ===${NC}"
     echo ""
-    echo -e "${BLUE}🎯 推荐使用新的规则库管理系统：${NC}"
-    echo -e "${GREEN}1.${NC} 规则库管理 (推荐) - 独立存档、CRUD操作、状态管理"
-    echo ""
-    echo -e "${YELLOW}🔧 传统直接配置模式：${NC}"
-    echo -e "${GREEN}2.${NC} 查看当前出站配置"
-    echo -e "${GREEN}3.${NC} 添加新的出站规则 (直接写入配置)"
-    echo -e "${GREEN}4.${NC} 修改现有配置 (直接修改配置)"
-    echo ""
-    echo -e "${CYAN}📚 说明：${NC}"
-    echo -e "  • 规则库管理：支持规则存档、独立管理、应用/取消应用"
-    echo -e "  • 传统模式：直接操作配置文件，兼容旧版使用习惯"
+    echo -e "${GREEN}1.${NC} 查看出站规则"
+    echo -e "${GREEN}2.${NC} 新增出站规则"
+    echo -e "${GREEN}3.${NC} 应用规则到配置"
+    echo -e "${GREEN}4.${NC} 修改出站规则"
+    echo -e "${GREEN}5.${NC} 删除出站规则"
     echo ""
     echo -e "${RED}0.${NC} 返回主菜单"
     echo ""
@@ -1231,22 +1225,14 @@ manage_outbound() {
         show_outbound_menu
 
         local choice
-        read -p "请选择操作 [0-4]: " choice
+        read -p "请选择操作 [0-5]: " choice
 
         case $choice in
-            1)
-                # 调用新的规则库管理系统
-                if [[ -f "$SCRIPT_DIR/outbound-rules-manager.sh" ]]; then
-                    source "$SCRIPT_DIR/outbound-rules-manager.sh"
-                    manage_rules_library
-                else
-                    log_error "规则库管理器未找到，请检查安装"
-                    wait_for_user
-                fi
-                ;;
-            2) view_current_outbound ;;
-            3) add_outbound_rule ;;
-            4) modify_outbound_config ;;
+            1) view_outbound_rules ;;
+            2) add_outbound_rule_new ;;
+            3) apply_outbound_rule ;;
+            4) modify_outbound_rule ;;
+            5) delete_outbound_rule_new ;;
             0)
                 log_info "返回主菜单"
                 break
@@ -1448,6 +1434,667 @@ ask_restart_service() {
             log_error "服务重启失败，请手动重启"
         fi
     fi
+}
+
+# ===== 新的核心功能实现 =====
+
+# 规则库文件路径
+readonly RULES_DIR="/etc/hysteria/outbound-rules"
+readonly RULES_LIBRARY="$RULES_DIR/rules-library.yaml"
+readonly RULES_STATE="$RULES_DIR/rules-state.yaml"
+
+# 初始化规则库
+init_rules_library() {
+    if [[ ! -d "$RULES_DIR" ]]; then
+        mkdir -p "$RULES_DIR" 2>/dev/null || {
+            log_error "无法创建规则库目录，将使用临时目录"
+            RULES_DIR="/tmp/hysteria-rules"
+            RULES_LIBRARY="$RULES_DIR/rules-library.yaml"
+            RULES_STATE="$RULES_DIR/rules-state.yaml"
+            mkdir -p "$RULES_DIR"
+        }
+    fi
+
+    if [[ ! -f "$RULES_LIBRARY" ]]; then
+        cat > "$RULES_LIBRARY" << 'EOF'
+# Hysteria2 出站规则库
+rules: {}
+version: "1.0"
+last_modified: ""
+EOF
+    fi
+
+    if [[ ! -f "$RULES_STATE" ]]; then
+        cat > "$RULES_STATE" << 'EOF'
+# Hysteria2 出站规则状态
+applied_rules: []
+last_sync: ""
+EOF
+    fi
+}
+
+# 1. 查看出站规则
+view_outbound_rules() {
+    init_rules_library
+
+    echo -e "${BLUE}=== 出站规则总览 ===${NC}"
+    echo ""
+
+    # 显示配置文件中的规则
+    echo -e "${GREEN}📄 配置文件中的规则：${NC}"
+    if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
+        local rule_count=0
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*(.+)$ ]]; then
+                local rule_name="${BASH_REMATCH[1]}"
+                rule_name=$(echo "$rule_name" | tr -d '"' | xargs)
+                ((rule_count++))
+                echo "  $rule_count. $rule_name ✅"
+            fi
+        done < <(sed -n '/^[[:space:]]*outbounds:/,/^[[:space:]]*[a-zA-Z]/p' "$HYSTERIA_CONFIG" | head -n -1)
+
+        if [[ $rule_count -eq 0 ]]; then
+            echo "  (无规则)"
+        fi
+    else
+        echo "  (无规则)"
+    fi
+
+    echo ""
+
+    # 显示规则库中的规则
+    echo -e "${CYAN}📚 规则库中的规则：${NC}"
+    if [[ -f "$RULES_LIBRARY" ]] && grep -q "rules:" "$RULES_LIBRARY"; then
+        local lib_count=0
+        # 简单解析YAML中的规则
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+                local rule_name="${BASH_REMATCH[1]}"
+                if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
+                    ((lib_count++))
+                    # 检查是否已应用
+                    local status="❌ 未应用"
+                    if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                        status="✅ 已应用"
+                    fi
+                    echo "  $lib_count. $rule_name $status"
+                fi
+            fi
+        done < "$RULES_LIBRARY"
+
+        if [[ $lib_count -eq 0 ]]; then
+            echo "  (无规则)"
+        fi
+    else
+        echo "  (无规则)"
+    fi
+
+    echo ""
+    wait_for_user
+}
+
+# 2. 新增出站规则
+add_outbound_rule_new() {
+    init_rules_library
+
+    echo -e "${BLUE}=== 新增出站规则 ===${NC}"
+    echo ""
+
+    # 获取规则名称
+    local rule_name
+    while true; do
+        read -p "规则名称 (字母、数字、下划线): " rule_name
+
+        if [[ -z "$rule_name" ]]; then
+            echo -e "${RED}规则名称不能为空${NC}"
+            continue
+        fi
+
+        if [[ ! "$rule_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+            echo -e "${RED}规则名称只能包含字母、数字和下划线${NC}"
+            continue
+        fi
+
+        # 检查是否已存在
+        if grep -q "^[[:space:]]*$rule_name:[[:space:]]*$" "$RULES_LIBRARY" 2>/dev/null; then
+            echo -e "${RED}规则名称已存在${NC}"
+            continue
+        fi
+
+        break
+    done
+
+    # 获取规则描述
+    read -p "规则描述: " rule_desc
+    if [[ -z "$rule_desc" ]]; then
+        rule_desc="$rule_name 出站规则"
+    fi
+
+    # 选择规则类型
+    echo ""
+    echo "选择规则类型："
+    echo "1. Direct (直连)"
+    echo "2. SOCKS5 代理"
+    echo "3. HTTP/HTTPS 代理"
+    echo ""
+
+    local rule_type=""
+    local type_choice
+    read -p "请选择 [1-3]: " type_choice
+
+    case $type_choice in
+        1) rule_type="direct" ;;
+        2) rule_type="socks5" ;;
+        3) rule_type="http" ;;
+        *)
+            log_error "无效选择"
+            return 1
+            ;;
+    esac
+
+    # 收集配置
+    local config_data=""
+    case $rule_type in
+        "direct")
+            echo ""
+            echo -e "${BLUE}配置 Direct 直连参数${NC}"
+            read -p "绑定网卡 (可选): " interface
+            read -p "绑定IPv4 (可选): " ipv4
+            read -p "绑定IPv6 (可选): " ipv6
+
+            config_data="mode: auto"
+            if [[ -n "$interface" ]]; then
+                config_data+="\nbindDevice: \"$interface\""
+            fi
+            if [[ -n "$ipv4" ]]; then
+                config_data+="\nbindIPv4: \"$ipv4\""
+            fi
+            if [[ -n "$ipv6" ]]; then
+                config_data+="\nbindIPv6: \"$ipv6\""
+            fi
+            ;;
+        "socks5")
+            echo ""
+            echo -e "${BLUE}配置 SOCKS5 代理参数${NC}"
+            read -p "代理地址:端口: " addr
+            if [[ -z "$addr" ]]; then
+                log_error "代理地址不能为空"
+                return 1
+            fi
+
+            config_data="addr: \"$addr\""
+
+            read -p "需要认证？ [y/N]: " need_auth
+            if [[ $need_auth =~ ^[Yy]$ ]]; then
+                read -p "用户名: " username
+                read -s -p "密码: " password
+                echo ""
+                if [[ -n "$username" ]]; then
+                    config_data+="\nusername: \"$username\""
+                    config_data+="\npassword: \"$password\""
+                fi
+            fi
+            ;;
+        "http")
+            echo ""
+            echo -e "${BLUE}配置 HTTP/HTTPS 代理参数${NC}"
+            read -p "代理URL: " url
+            if [[ -z "$url" ]]; then
+                log_error "代理URL不能为空"
+                return 1
+            fi
+
+            config_data="url: \"$url\""
+
+            if [[ "$url" =~ ^https:// ]]; then
+                read -p "跳过TLS验证？ [y/N]: " skip_tls
+                if [[ $skip_tls =~ ^[Yy]$ ]]; then
+                    config_data+="\ninsecure: true"
+                fi
+            fi
+            ;;
+    esac
+
+    # 保存到规则库
+    local temp_file="/tmp/rules_add_$$_$(date +%s).yaml"
+
+    # 在rules节点下添加新规则
+    awk -v rule="$rule_name" -v type="$rule_type" -v desc="$rule_desc" -v config="$config_data" '
+    /^rules:/ {
+        print $0
+        print "  " rule ":"
+        print "    type: " type
+        print "    description: \"" desc "\""
+        print "    config:"
+        # 处理配置数据，添加正确的缩进
+        n = split(config, lines, "\\n")
+        for (i = 1; i <= n; i++) {
+            if (lines[i] != "") {
+                print "      " lines[i]
+            }
+        }
+        print "    created_at: \"" strftime("%Y-%m-%dT%H:%M:%SZ") "\""
+        print "    updated_at: \"" strftime("%Y-%m-%dT%H:%M:%SZ") "\""
+        next
+    }
+    /^last_modified:/ {
+        print "last_modified: \"" strftime("%Y-%m-%dT%H:%M:%SZ") "\""
+        next
+    }
+    { print }
+    ' "$RULES_LIBRARY" > "$temp_file"
+
+    if mv "$temp_file" "$RULES_LIBRARY"; then
+        log_success "规则 '$rule_name' 已添加到规则库"
+
+        echo ""
+        read -p "是否立即应用此规则？ [y/N]: " apply_now
+        if [[ $apply_now =~ ^[Yy]$ ]]; then
+            apply_rule_to_config_simple "$rule_name"
+        fi
+    else
+        log_error "规则保存失败"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    wait_for_user
+}
+
+# 3. 应用规则到配置
+apply_outbound_rule() {
+    init_rules_library
+
+    echo -e "${BLUE}=== 应用规则到配置 ===${NC}"
+    echo ""
+
+    # 列出规则库中未应用的规则
+    local unapplied_rules=()
+    local rule_count=0
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+            local rule_name="${BASH_REMATCH[1]}"
+            if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
+                # 检查是否已应用
+                if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                    unapplied_rules+=("$rule_name")
+                    ((rule_count++))
+                    echo "$rule_count. $rule_name"
+                fi
+            fi
+        fi
+    done < "$RULES_LIBRARY"
+
+    if [[ ${#unapplied_rules[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}没有可应用的规则${NC}"
+        wait_for_user
+        return
+    fi
+
+    echo ""
+    read -p "请选择要应用的规则 [1-$rule_count]: " choice
+
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt $rule_count ]]; then
+        log_error "无效选择"
+        return 1
+    fi
+
+    local selected_rule="${unapplied_rules[$((choice-1))]}"
+    apply_rule_to_config_simple "$selected_rule"
+
+    wait_for_user
+}
+
+# 应用规则到配置的简化实现
+apply_rule_to_config_simple() {
+    local rule_name="$1"
+
+    # 从规则库提取规则信息
+    local rule_type=$(awk -v rule="$rule_name" '
+    BEGIN { in_rule = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*type:/ { gsub(/^[[:space:]]*type:[[:space:]]*/, ""); print $0; exit }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+    ' "$RULES_LIBRARY")
+
+    if [[ -z "$rule_type" ]]; then
+        log_error "无法获取规则类型"
+        return 1
+    fi
+
+    # 提取配置
+    local config_section=$(awk -v rule="$rule_name" '
+    BEGIN { in_rule = 0; in_config = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+    in_rule && in_config && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_config = 0; in_rule = 0 }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+    in_config { print $0 }
+    ' "$RULES_LIBRARY")
+
+    # 备份配置
+    if [[ -f "$HYSTERIA_CONFIG" ]]; then
+        cp "$HYSTERIA_CONFIG" "${HYSTERIA_CONFIG}.bak.$(date +%s)" 2>/dev/null
+    fi
+
+    # 应用到配置文件
+    local temp_config="/tmp/hysteria_apply_$$_$(date +%s).yaml"
+
+    if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
+        # 插入到现有outbounds
+        awk -v rule="$rule_name" -v type="$rule_type" -v config="$config_section" '
+        /^[[:space:]]*outbounds:/ {
+            print $0
+            print ""
+            print "  # 规则: " rule
+            print "  - name: " rule
+            print "    type: " type
+            print "    " type ":"
+            # 处理配置行
+            n = split(config, lines, "\n")
+            for (i = 1; i <= n; i++) {
+                if (lines[i] != "") {
+                    print "  " lines[i]
+                }
+            }
+            in_outbounds = 1
+            next
+        }
+        in_outbounds && /^[[:space:]]*[a-zA-Z]+:[[:space:]]*$/ && !/^[[:space:]]*-/ {
+            in_outbounds = 0
+        }
+        { print }
+        ' "$HYSTERIA_CONFIG" > "$temp_config"
+    else
+        # 创建新的outbounds节点
+        if [[ -f "$HYSTERIA_CONFIG" ]]; then
+            cp "$HYSTERIA_CONFIG" "$temp_config"
+        else
+            echo "# Hysteria2 配置文件" > "$temp_config"
+        fi
+
+        cat >> "$temp_config" << EOF
+
+# 出站规则配置
+outbounds:
+  # 规则: $rule_name
+  - name: $rule_name
+    type: $rule_type
+    $rule_type:
+$(echo "$config_section" | sed 's/^/      /')
+EOF
+    fi
+
+    # 应用配置
+    if mv "$temp_config" "$HYSTERIA_CONFIG"; then
+        # 更新状态
+        if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+            awk -v rule="$rule_name" '
+            /^applied_rules:/ {
+                print $0
+                print "  - " rule
+                next
+            }
+            /^last_sync:/ {
+                print "last_sync: \"" strftime("%Y-%m-%dT%H:%M:%SZ") "\""
+                next
+            }
+            { print }
+            ' "$RULES_STATE" > "${RULES_STATE}.tmp" && mv "${RULES_STATE}.tmp" "$RULES_STATE"
+        fi
+
+        log_success "规则 '$rule_name' 已应用到配置"
+
+        read -p "是否重启 Hysteria2 服务？ [y/N]: " restart_service
+        if [[ $restart_service =~ ^[Yy]$ ]]; then
+            if systemctl restart hysteria-server 2>/dev/null; then
+                log_success "服务已重启"
+            else
+                log_warn "服务重启失败，请手动重启"
+            fi
+        fi
+    else
+        log_error "配置应用失败"
+        rm -f "$temp_config"
+        return 1
+    fi
+}
+
+# 4. 修改出站规则
+modify_outbound_rule() {
+    init_rules_library
+
+    echo -e "${BLUE}=== 修改出站规则 ===${NC}"
+    echo ""
+
+    # 列出规则库中的规则
+    local rules=()
+    local rule_count=0
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+            local rule_name="${BASH_REMATCH[1]}"
+            if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
+                rules+=("$rule_name")
+                ((rule_count++))
+                echo "$rule_count. $rule_name"
+            fi
+        fi
+    done < "$RULES_LIBRARY"
+
+    if [[ ${#rules[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}没有可修改的规则${NC}"
+        wait_for_user
+        return
+    fi
+
+    echo ""
+    read -p "请选择要修改的规则 [1-$rule_count]: " choice
+
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt $rule_count ]]; then
+        log_error "无效选择"
+        return 1
+    fi
+
+    local selected_rule="${rules[$((choice-1))]}"
+
+    echo ""
+    echo "修改选项："
+    echo "1. 修改描述"
+    echo "2. 修改配置参数"
+    echo ""
+
+    read -p "请选择操作 [1-2]: " modify_choice
+
+    case $modify_choice in
+        1)
+            # 获取当前描述
+            local current_desc=$(awk -v rule="$selected_rule" '
+            BEGIN { in_rule = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*description:/ {
+                gsub(/^[[:space:]]*description:[[:space:]]*"?/, "");
+                gsub(/"?[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            echo "当前描述: $current_desc"
+            read -p "新的描述: " new_desc
+
+            if [[ -n "$new_desc" ]]; then
+                # 更新描述
+                awk -v rule="$selected_rule" -v desc="$new_desc" '
+                BEGIN { in_rule = 0 }
+                $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; print; next }
+                in_rule && /^[[:space:]]*description:/ {
+                    gsub(/^[[:space:]]*/, "")
+                    indent = substr($0, 1, match($0, /[^ ]/) - 1)
+                    print indent "description: \"" desc "\""
+                    next
+                }
+                in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+                { print }
+                ' "$RULES_LIBRARY" > "${RULES_LIBRARY}.tmp" && mv "${RULES_LIBRARY}.tmp" "$RULES_LIBRARY"
+
+                log_success "描述已更新"
+            fi
+            ;;
+        2)
+            echo -e "${YELLOW}配置参数修改功能开发中...${NC}"
+            echo "请使用删除规则后重新创建的方式进行修改"
+            ;;
+        *)
+            log_error "无效选择"
+            ;;
+    esac
+
+    wait_for_user
+}
+
+# 5. 删除出站规则
+delete_outbound_rule_new() {
+    init_rules_library
+
+    echo -e "${BLUE}=== 删除出站规则 ===${NC}"
+    echo ""
+
+    # 列出规则库中的规则
+    local rules=()
+    local rule_count=0
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
+            local rule_name="${BASH_REMATCH[1]}"
+            if [[ "$rule_name" != "rules" && "$rule_name" != "version" && "$rule_name" != "last_modified" ]]; then
+                rules+=("$rule_name")
+                ((rule_count++))
+
+                # 检查是否已应用
+                local status="❌ 未应用"
+                if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                    status="✅ 已应用"
+                fi
+                echo "$rule_count. $rule_name $status"
+            fi
+        fi
+    done < "$RULES_LIBRARY"
+
+    if [[ ${#rules[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}没有可删除的规则${NC}"
+        wait_for_user
+        return
+    fi
+
+    echo ""
+    read -p "请选择要删除的规则 [1-$rule_count]: " choice
+
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt $rule_count ]]; then
+        log_error "无效选择"
+        return 1
+    fi
+
+    local selected_rule="${rules[$((choice-1))]}"
+
+    echo ""
+    echo -e "${RED}⚠️  警告: 即将删除规则 '$selected_rule'${NC}"
+
+    # 检查是否已应用
+    if grep -q "- $selected_rule" "$RULES_STATE" 2>/dev/null; then
+        echo -e "${YELLOW}此规则当前已应用，删除将同时从配置文件中移除${NC}"
+    fi
+
+    echo ""
+    read -p "确认删除？ [y/N]: " confirm
+
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}已取消删除操作${NC}"
+        return 0
+    fi
+
+    # 如果已应用，先从配置中移除
+    if grep -q "- $selected_rule" "$RULES_STATE" 2>/dev/null; then
+        echo "正在从配置文件中移除..."
+
+        # 从配置文件中删除
+        if [[ -f "$HYSTERIA_CONFIG" ]]; then
+            local temp_config="/tmp/hysteria_delete_$$_$(date +%s).yaml"
+            local in_target_rule=false
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${selected_rule}[[:space:]]*$ ]]; then
+                    in_target_rule=true
+                    continue
+                elif [[ "$in_target_rule" == true ]]; then
+                    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
+                        in_target_rule=false
+                        echo "$line" >> "$temp_config"
+                    fi
+                    # 在规则中的行都跳过
+                else
+                    echo "$line" >> "$temp_config"
+                fi
+            done < "$HYSTERIA_CONFIG"
+
+            mv "$temp_config" "$HYSTERIA_CONFIG"
+        fi
+
+        # 从状态文件中移除
+        awk -v rule="$selected_rule" '
+        $0 == "  - " rule { next }
+        { print }
+        ' "$RULES_STATE" > "${RULES_STATE}.tmp" && mv "${RULES_STATE}.tmp" "$RULES_STATE"
+    fi
+
+    # 从规则库中删除
+    local temp_library="/tmp/rules_delete_$$_$(date +%s).yaml"
+    local in_target_rule=false
+    local rule_indent=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^[[:space:]]*${selected_rule}:[[:space:]]*$ ]]; then
+            in_target_rule=true
+            rule_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+            continue
+        elif [[ "$in_target_rule" == true ]]; then
+            # 检查是否离开规则
+            if [[ "$line" =~ ^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$ ]]; then
+                local line_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
+                if [[ ${#line_indent} -le ${#rule_indent} ]]; then
+                    in_target_rule=false
+                    echo "$line" >> "$temp_library"
+                fi
+            elif [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|description|config|created_at|updated_at): ]]; then
+                in_target_rule=false
+                echo "$line" >> "$temp_library"
+            fi
+            # 在规则中的行都跳过
+        else
+            echo "$line" >> "$temp_library"
+        fi
+    done < "$RULES_LIBRARY"
+
+    if mv "$temp_library" "$RULES_LIBRARY"; then
+        log_success "规则 '$selected_rule' 已删除"
+
+        read -p "是否重启 Hysteria2 服务？ [y/N]: " restart_service
+        if [[ $restart_service =~ ^[Yy]$ ]]; then
+            if systemctl restart hysteria-server 2>/dev/null; then
+                log_success "服务已重启"
+            else
+                log_warn "服务重启失败，请手动重启"
+            fi
+        fi
+    else
+        log_error "规则删除失败"
+        rm -f "$temp_library"
+        return 1
+    fi
+
+    wait_for_user
 }
 
 # 如果脚本被直接执行
