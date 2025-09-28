@@ -134,7 +134,7 @@ download_scripts() {
     echo -e "${BLUE}下载 Hysteria2 配置管理脚本...${NC}"
 
     # 创建安装目录
-    if ! mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/scripts" "$INSTALL_DIR/templates" "$INSTALL_DIR/scripts/outbound-templates"; then
+    if ! mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/scripts" "$INSTALL_DIR/templates"; then
         echo -e "${RED}错误: 无法创建安装目录${NC}"
         exit 1
     fi
@@ -151,11 +151,15 @@ download_scripts() {
         ((failed_downloads++))
     fi
 
+    # 下载主安装脚本(在根目录)
+    if ! download_file "$RAW_URL/install.sh" "install.sh" "主安装脚本"; then
+        ((failed_downloads++))
+    fi
+
     # 下载功能脚本
     echo "下载功能模块..."
     local scripts=(
         "common.sh:公共库脚本"
-        "install.sh:安装脚本"
         "config.sh:配置脚本"
         "config-loader.sh:配置加载器"
         "service.sh:服务管理脚本"
@@ -192,20 +196,7 @@ download_scripts() {
         fi
     done
 
-    # 下载出站模板
-    echo "下载出站配置模板..."
-    local outbound_templates=(
-        "direct.yaml:直连出站模板"
-        "socks5.yaml:SOCKS5出站模板"
-        "http.yaml:HTTP出站模板"
-    )
-
-    for template_info in "${outbound_templates[@]}"; do
-        IFS=':' read -r template_name template_desc <<< "$template_info"
-        if ! download_file "$RAW_URL/scripts/outbound-templates/$template_name" "scripts/outbound-templates/$template_name" "$template_desc"; then
-            ((failed_downloads++))
-        fi
-    done
+    # 注意：出站配置模板由 outbound-manager.sh 动态生成，无需下载
 
     # 设置执行权限
     echo "设置执行权限..."
