@@ -33,11 +33,20 @@ init_outbound_manager() {
 # 显示出站管理菜单
 show_outbound_menu() {
     clear
-    echo -e "${CYAN}=== Hysteria2 出站规则 ===${NC}"
+    echo -e "${CYAN}=== Hysteria2 出站规则管理 ===${NC}"
     echo ""
-    echo -e "${GREEN}1.${NC} 查看当前出站配置"
-    echo -e "${GREEN}2.${NC} 添加新的出站规则"
-    echo -e "${GREEN}3.${NC} 修改现有配置"
+    echo -e "${BLUE}🎯 推荐使用新的规则库管理系统：${NC}"
+    echo -e "${GREEN}1.${NC} 规则库管理 (推荐) - 独立存档、CRUD操作、状态管理"
+    echo ""
+    echo -e "${YELLOW}🔧 传统直接配置模式：${NC}"
+    echo -e "${GREEN}2.${NC} 查看当前出站配置"
+    echo -e "${GREEN}3.${NC} 添加新的出站规则 (直接写入配置)"
+    echo -e "${GREEN}4.${NC} 修改现有配置 (直接修改配置)"
+    echo ""
+    echo -e "${CYAN}📚 说明：${NC}"
+    echo -e "  • 规则库管理：支持规则存档、独立管理、应用/取消应用"
+    echo -e "  • 传统模式：直接操作配置文件，兼容旧版使用习惯"
+    echo ""
     echo -e "${RED}0.${NC} 返回主菜单"
     echo ""
 }
@@ -1222,12 +1231,22 @@ manage_outbound() {
         show_outbound_menu
 
         local choice
-        read -p "请选择操作 [0-3]: " choice
+        read -p "请选择操作 [0-4]: " choice
 
         case $choice in
-            1) view_current_outbound ;;
-            2) add_outbound_rule ;;
-            3) modify_outbound_config ;;
+            1)
+                # 调用新的规则库管理系统
+                if [[ -f "$SCRIPT_DIR/outbound-rules-manager.sh" ]]; then
+                    source "$SCRIPT_DIR/outbound-rules-manager.sh"
+                    manage_rules_library
+                else
+                    log_error "规则库管理器未找到，请检查安装"
+                    wait_for_user
+                fi
+                ;;
+            2) view_current_outbound ;;
+            3) add_outbound_rule ;;
+            4) modify_outbound_config ;;
             0)
                 log_info "返回主菜单"
                 break
