@@ -23,7 +23,8 @@
       "Bash(hysteria:*)",
       "Read(//c/**)",
       "Bash(tree:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(RULES_DIR=\"/tmp/hysteria-rules\" RULES_LIBRARY=\"/tmp/hysteria-rules/rules-library.yaml\" RULES_STATE=\"/tmp/hysteria-rules/rules-state.yaml\" bash -c 'source scripts/outbound-manager.sh && init_rules_library && echo \"\"=== 规则库内容 ===\"\" && cat \"\"$RULES_LIBRARY\"\" 2>/dev/null || echo \"\"规则库文件不存在\"\"')"
     ],
     "deny": []
   }

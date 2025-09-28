@@ -1439,9 +1439,10 @@ ask_restart_service() {
 # ===== 新的核心功能实现 =====
 
 # 规则库文件路径
-readonly RULES_DIR="/etc/hysteria/outbound-rules"
-readonly RULES_LIBRARY="$RULES_DIR/rules-library.yaml"
-readonly RULES_STATE="$RULES_DIR/rules-state.yaml"
+# 规则库目录变量
+RULES_DIR="/etc/hysteria/outbound-rules"
+RULES_LIBRARY="$RULES_DIR/rules-library.yaml"
+RULES_STATE="$RULES_DIR/rules-state.yaml"
 
 # 初始化规则库
 init_rules_library() {
@@ -1458,9 +1459,17 @@ init_rules_library() {
     if [[ ! -f "$RULES_LIBRARY" ]]; then
         cat > "$RULES_LIBRARY" << 'EOF'
 # Hysteria2 出站规则库
+# 格式：每个规则包含type、description和config字段
 version: "1.0"
 last_modified: ""
-rules: {}
+rules:
+  # 示例规则（已注释）:
+  # direct_rule:
+  #   type: direct
+  #   description: "直连规则示例"
+  #   config:
+  #     mode: auto
+  #     bindDevice: eth0
 EOF
     fi
 
@@ -1775,85 +1784,140 @@ apply_outbound_rule() {
 }
 
 # 应用规则到配置的简化实现
+# 新的规则应用函数 - 符合Hysteria2官方标准
 apply_rule_to_config_simple() {
     local rule_name="$1"
 
-    # 从规则库提取规则信息 - 使用修复的YAML解析
-    local rule_type rule_config
-
-    # 使用更准确的awk解析规则库 - 考虑YAML的层级结构
-    eval "$(awk -v rule="$rule_name" '
-    BEGIN {
-        in_rules = 0; in_rule = 0; in_config = 0
-        type = ""; config_lines = ""
-    }
-    # 检测进入rules节点
-    /^[[:space:]]*rules:[[:space:]]*$/ { in_rules = 1; next }
-    # 在rules节点内，检测规则名（2级缩进）
-    in_rules && /^[[:space:]]{2}[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ {
-        current_rule = $0
-        gsub(/^[[:space:]]*/, "", current_rule)
-        gsub(/:[[:space:]]*$/, "", current_rule)
-        if (current_rule == rule) {
-            in_rule = 1
-        } else {
-            in_rule = 0; in_config = 0
-        }
-        next
-    }
-    # 在当前规则内，提取type
-    in_rule && /^[[:space:]]*type:[[:space:]]*/ {
-        gsub(/^[[:space:]]*type:[[:space:]]*/, "", $0)
-        type = $0
-        next
-    }
-    # 在当前规则内，检测config节点
-    in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-    # 在config节点内，收集配置行
-    in_rule && in_config && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:/ {
-        if (config_lines != "") config_lines = config_lines "\\n"
-        config_lines = config_lines $0
-    }
-    # 退出rules节点或规则节点
-    in_rules && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]{2}/ { in_rules = 0 }
-    END {
-        print "rule_type=\"" type "\""
-        print "rule_config=\"" config_lines "\""
-    }
-    ' "$RULES_LIBRARY")"
-
-    if [[ -z "$rule_type" ]]; then
-        log_error "无法获取规则类型"
+    if [[ -z "$rule_name" ]]; then
+        log_error "规则名称不能为空"
         return 1
     fi
 
-    # 备份配置
-    if [[ -f "$HYSTERIA_CONFIG" ]]; then
-        cp "$HYSTERIA_CONFIG" "${HYSTERIA_CONFIG}.bak.$(date +%s)" 2>/dev/null
+    # 简化的YAML解析 - 使用更直接的方法
+    local rule_type rule_config
+
+    # 检查规则是否存在
+    if ! grep -A 20 "^[[:space:]]*${rule_name}:[[:space:]]*$" "$RULES_LIBRARY" >/dev/null 2>&1; then
+        log_error "规则 '$rule_name' 不存在于规则库中"
+        return 1
     fi
 
-    # 应用到配置文件 - 生成正确的Hysteria2格式
+    # 提取规则类型
+    rule_type=$(awk -v rule="$rule_name" '
+    BEGIN { found = 0; in_rule = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*type:[[:space:]]*/ {
+        gsub(/^[[:space:]]*type:[[:space:]]*/, "");
+        gsub(/[[:space:]]*$/, "");
+        print $0;
+        exit
+    }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*type:/ && !/^[[:space:]]*config:/ && !/^[[:space:]]*description:/ {
+        in_rule = 0
+    }
+    ' "$RULES_LIBRARY")
+
+    if [[ -z "$rule_type" ]]; then
+        log_error "无法获取规则 '$rule_name' 的类型"
+        return 1
+    fi
+
+    log_info "检测到规则类型: $rule_type"
+
+    # 提取配置参数
+    case "$rule_type" in
+        "direct")
+            # 提取direct配置参数
+            local mode bindDevice bindIPv4 bindIPv6
+            mode=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*mode:[[:space:]]*/ {
+                gsub(/^[[:space:]]*mode:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            bindDevice=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*bindDevice:[[:space:]]*/ {
+                gsub(/^[[:space:]]*bindDevice:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+            ;;
+
+        "socks5")
+            # 提取socks5配置参数
+            local addr username password
+            addr=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*addr:[[:space:]]*/ {
+                gsub(/^[[:space:]]*addr:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+            ;;
+
+        "http")
+            # 提取http配置参数
+            local url insecure
+            url=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*url:[[:space:]]*/ {
+                gsub(/^[[:space:]]*url:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+            ;;
+    esac
+
+    # 备份现有配置
+    if [[ -f "$HYSTERIA_CONFIG" ]]; then
+        cp "$HYSTERIA_CONFIG" "${HYSTERIA_CONFIG}.bak.$(date +%s)" 2>/dev/null
+        log_info "已备份配置文件"
+    fi
+
+    # 生成符合官方标准的outbound配置
     local temp_config="/tmp/hysteria_apply_$$_$(date +%s).yaml"
 
     if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
         # 在现有outbounds中添加新规则
-        awk -v rule="$rule_name" -v type="$rule_type" -v config="$rule_config" '
+        awk -v rule="$rule_name" -v type="$rule_type" -v mode="$mode" -v device="$bindDevice" -v addr="$addr" -v url="$url" '
         /^[[:space:]]*outbounds:/ {
             print $0
-            # 添加新的出站规则，确保正确的Hysteria2格式
+            # 根据官方格式添加outbound
             print "  - name: " rule
             print "    type: " type
-            if (type != "" && config != "") {
-                print "    " type ":"
-                # 处理配置行，确保正确缩进（6个空格）
-                n = split(config, lines, "\\n")
-                for (i = 1; i <= n; i++) {
-                    if (lines[i] != "") {
-                        # 移除原有缩进并添加正确的6空格缩进
-                        gsub(/^[[:space:]]*/, "", lines[i])
-                        print "      " lines[i]
-                    }
-                }
+            if (type == "direct") {
+                print "    direct:"
+                if (mode != "") print "      mode: " mode
+                if (device != "") print "      bindDevice: " device
+            } else if (type == "socks5") {
+                print "    socks5:"
+                if (addr != "") print "      addr: " addr
+            } else if (type == "http") {
+                print "    http:"
+                if (url != "") print "      url: " url
             }
             next
         }
@@ -1867,45 +1931,52 @@ apply_rule_to_config_simple() {
             echo "# Hysteria2 配置文件" > "$temp_config"
         fi
 
-        # 添加outbounds节点 - 正确的格式
+        # 添加符合官方标准的outbounds节点
         cat >> "$temp_config" << EOF
 
+# 出站配置
 outbounds:
   - name: $rule_name
     type: $rule_type
 EOF
 
-        if [[ -n "$rule_config" ]]; then
-            echo "    $rule_type:" >> "$temp_config"
-            echo "$rule_config" | while IFS= read -r line; do
-                if [[ -n "$line" ]]; then
-                    # 移除原有缩进并添加正确的6空格缩进
-                    line=$(echo "$line" | sed 's/^[[:space:]]*//')
-                    echo "      $line" >> "$temp_config"
-                fi
-            done
-        fi
+        # 根据规则类型添加具体配置
+        case "$rule_type" in
+            "direct")
+                echo "    direct:" >> "$temp_config"
+                [[ -n "$mode" ]] && echo "      mode: $mode" >> "$temp_config"
+                [[ -n "$bindDevice" ]] && echo "      bindDevice: $bindDevice" >> "$temp_config"
+                ;;
+            "socks5")
+                echo "    socks5:" >> "$temp_config"
+                [[ -n "$addr" ]] && echo "      addr: $addr" >> "$temp_config"
+                ;;
+            "http")
+                echo "    http:" >> "$temp_config"
+                [[ -n "$url" ]] && echo "      url: $url" >> "$temp_config"
+                ;;
+        esac
     fi
 
     # 应用配置
-    if mv "$temp_config" "$HYSTERIA_CONFIG"; then
-        # 更新状态
+    if [[ -s "$temp_config" ]]; then
+        mv "$temp_config" "$HYSTERIA_CONFIG"
+        log_success "规则 '$rule_name' 已应用到配置文件"
+
+        # 更新状态文件
         if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+            sed -i "/applied_rules:/a\\  - $rule_name" "$RULES_STATE" 2>/dev/null ||
             awk -v rule="$rule_name" '
             /^applied_rules:/ {
                 print $0
                 print "  - " rule
                 next
             }
-            /^last_sync:/ {
-                print "last_sync: \"" strftime("%Y-%m-%dT%H:%M:%SZ") "\""
-                next
-            }
             { print }
             ' "$RULES_STATE" > "${RULES_STATE}.tmp" && mv "${RULES_STATE}.tmp" "$RULES_STATE"
         fi
 
-        log_success "规则 '$rule_name' 已应用到配置"
+        log_info "状态已更新"
 
         read -p "是否重启 Hysteria2 服务？ [y/N]: " restart_service
         if [[ $restart_service =~ ^[Yy]$ ]]; then
@@ -1915,6 +1986,7 @@ EOF
                 log_warn "服务重启失败，请手动重启"
             fi
         fi
+        return 0
     else
         log_error "配置应用失败"
         rm -f "$temp_config"
