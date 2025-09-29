@@ -596,6 +596,12 @@ delete_existing_outbound_from_config() {
         return 0  # 文件不存在视为成功删除
     fi
 
+    # 检查文件是否可写
+    if [[ ! -w "$config_file" ]]; then
+        log_warn "配置文件无写权限: $config_file"
+        return 1
+    fi
+
     echo -e "${BLUE}[INFO]${NC} 从配置文件中删除规则: $rule_name"
 
     # 创建临时文件
@@ -649,13 +655,18 @@ delete_existing_outbound_from_config() {
         fi
     done < "$config_file"
 
-    # 替换原文件
+    # 替换原文件 - 增强错误处理
     if mv "$temp_config" "$config_file" 2>/dev/null; then
         echo -e "${GREEN}[SUCCESS]${NC} 规则 '$rule_name' 已从配置文件中删除"
         return 0
-    else
-        log_error "删除规则失败，文件操作错误"
+    elif cp "$temp_config" "$config_file" 2>/dev/null; then
+        # mv失败时尝试cp
         rm -f "$temp_config"
+        echo -e "${GREEN}[SUCCESS]${NC} 规则 '$rule_name' 已从配置文件中删除"
+        return 0
+    else
+        log_error "删除规则失败: 文件操作错误，可能是权限问题"
+        log_info "临时文件保存在: $temp_config"
         return 1
     fi
 }
@@ -1929,6 +1940,7 @@ apply_rule_to_config_simple() {
     fi
 
     log_info "检测到规则类型: $rule_type"
+    log_debug "开始检查配置文件中的同类型规则: $HYSTERIA_CONFIG"
 
     # 检查是否存在同类型的已应用规则
     local existing_rule=""
@@ -1951,8 +1963,8 @@ apply_rule_to_config_simple() {
                 echo ""
                 # 先删除现有的同类型规则
                 if ! delete_existing_outbound_from_config "$existing_rule"; then
-                    log_error "删除现有规则失败"
-                    return 1
+                    log_warn "删除现有规则失败，将尝试直接覆盖"
+                    # 删除失败时不退出，而是继续尝试应用新规则
                 fi
                 ;;
             2)
