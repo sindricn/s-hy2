@@ -313,7 +313,126 @@ show_nftables_status() {
     fi
 }
 
-# 开放 Hysteria2 端口
+# 手动开放端口（交互式）
+open_custom_port() {
+    log_info "手动开放端口"
+
+    echo -e "${BLUE}=== 手动开放端口 ===${NC}"
+    echo ""
+
+    # 获取要开放的端口
+    local custom_port
+    while true; do
+        read -p "请输入要开放的端口号 (1-65535): " custom_port
+
+        # 验证端口号
+        if [[ ! "$custom_port" =~ ^[0-9]+$ ]]; then
+            echo -e "${RED}错误: 请输入有效的数字${NC}"
+            continue
+        fi
+
+        if [[ "$custom_port" -lt 1 || "$custom_port" -gt 65535 ]]; then
+            echo -e "${RED}错误: 端口号必须在 1-65535 范围内${NC}"
+            continue
+        fi
+
+        break
+    done
+
+    # 选择协议
+    echo ""
+    echo "选择协议类型："
+    echo "1. TCP"
+    echo "2. UDP"
+    echo "3. TCP + UDP"
+    echo ""
+
+    local protocol_choice
+    local protocols=()
+    read -p "请选择 [1-3]: " protocol_choice
+
+    case $protocol_choice in
+        1) protocols=("tcp") ;;
+        2) protocols=("udp") ;;
+        3) protocols=("tcp" "udp") ;;
+        *)
+            log_error "无效选择"
+            return 1
+            ;;
+    esac
+
+    # 确认开放
+    echo ""
+    echo -e "${YELLOW}即将开放端口：${NC}"
+    echo "端口: $custom_port"
+    echo "协议: ${protocols[*]}"
+    echo ""
+    read -p "确认开放此端口？ [y/N]: " confirm
+
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}操作已取消${NC}"
+        return 0
+    fi
+
+    # 执行开放操作
+    echo -e "${GREEN}正在开放端口 $custom_port...${NC}"
+
+    local success=true
+    for protocol in "${protocols[@]}"; do
+        case $DETECTED_FIREWALL in
+            $FW_FIREWALLD)
+                if ! firewall-cmd --permanent --add-port="$custom_port/$protocol" >/dev/null 2>&1; then
+                    success=false
+                    break
+                fi
+                ;;
+            $FW_UFW)
+                if ! ufw allow "$custom_port/$protocol" >/dev/null 2>&1; then
+                    success=false
+                    break
+                fi
+                ;;
+            $FW_IPTABLES)
+                if ! iptables -I INPUT -p "$protocol" --dport "$custom_port" -j ACCEPT >/dev/null 2>&1; then
+                    success=false
+                    break
+                fi
+                ;;
+            $FW_NFTABLES)
+                if ! nft add rule inet filter input "$protocol" dport "$custom_port" accept >/dev/null 2>&1; then
+                    success=false
+                    break
+                fi
+                ;;
+            *)
+                log_error "不支持的防火墙类型"
+                return 1
+                ;;
+        esac
+    done
+
+    if [ "$success" = true ]; then
+        # 重载配置
+        case $DETECTED_FIREWALL in
+            $FW_FIREWALLD)
+                firewall-cmd --reload >/dev/null 2>&1
+                ;;
+            $FW_IPTABLES)
+                save_iptables_rules
+                ;;
+        esac
+
+        log_success "端口 $custom_port (${protocols[*]}) 已成功开放"
+    else
+        log_error "端口开放失败"
+        return 1
+    fi
+
+    echo ""
+    wait_for_user
+}
+
+# 开放 Hysteria2 端口（自动）
 open_hysteria_port() {
     log_info "开放 Hysteria2 端口: $HYSTERIA_PORT"
 
@@ -545,17 +664,19 @@ manage_firewall_rules() {
     echo "1. 查看当前规则"
     echo "2. 删除 Hysteria2 相关规则"
     echo "3. 重新添加 Hysteria2 规则"
-    echo "4. 备份当前规则"
+    echo "4. 启用防火墙规则"
+    echo "5. 停用防火墙规则"
     echo ""
 
     local choice
-    read -p "请选择操作 [1-4]: " choice
+    read -p "请选择操作 [1-5]: " choice
 
     case $choice in
         1) show_firewall_status ;;
         2) remove_hysteria_rules ;;
         3) open_hysteria_port ;;
-        4) backup_firewall_rules ;;
+        4) enable_firewall_rules ;;
+        5) disable_firewall_rules ;;
         *)
             log_error "无效选择"
             wait_for_user
@@ -599,35 +720,153 @@ remove_hysteria_rules() {
     wait_for_user
 }
 
-# 备份防火墙规则
-backup_firewall_rules() {
-    local backup_dir="/var/backups/s-hy2/firewall"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+# 启用防火墙规则
+enable_firewall_rules() {
+    log_info "启用防火墙规则"
 
-    mkdir -p "$backup_dir"
+    echo -e "${BLUE}=== 启用防火墙规则 ===${NC}"
+    echo ""
 
     case $DETECTED_FIREWALL in
         $FW_FIREWALLD)
-            firewall-cmd --list-all > "$backup_dir/firewalld_$timestamp.conf"
-            log_success "firewalld 规则已备份到: $backup_dir/firewalld_$timestamp.conf"
+            if systemctl is-active firewalld >/dev/null 2>&1; then
+                echo -e "${GREEN}✅ firewalld 服务已启用并运行${NC}"
+                echo "当前活动规则："
+                firewall-cmd --list-all
+            else
+                echo -e "${YELLOW}⚠️  firewalld 服务未运行${NC}"
+                read -p "是否启动 firewalld 服务？ [y/N]: " start_fw
+                if [[ $start_fw =~ ^[Yy]$ ]]; then
+                    systemctl start firewalld
+                    systemctl enable firewalld
+                    log_success "firewalld 服务已启动并设为开机自启"
+                else
+                    echo -e "${BLUE}firewalld 服务保持停止状态${NC}"
+                fi
+            fi
             ;;
         $FW_UFW)
-            ufw status verbose > "$backup_dir/ufw_$timestamp.conf"
-            log_success "ufw 规则已备份到: $backup_dir/ufw_$timestamp.conf"
+            if ufw status | grep -q "Status: active"; then
+                echo -e "${GREEN}✅ ufw 防火墙已启用${NC}"
+                ufw status verbose
+            else
+                echo -e "${YELLOW}⚠️  ufw 防火墙未启用${NC}"
+                read -p "是否启用 ufw 防火墙？ [y/N]: " enable_ufw
+                if [[ $enable_ufw =~ ^[Yy]$ ]]; then
+                    ufw --force enable
+                    log_success "ufw 防火墙已启用"
+                else
+                    echo -e "${BLUE}ufw 防火墙保持停用状态${NC}"
+                fi
+            fi
             ;;
         $FW_IPTABLES)
-            iptables-save > "$backup_dir/iptables_$timestamp.rules"
-            log_success "iptables 规则已备份到: $backup_dir/iptables_$timestamp.rules"
+            echo -e "${GREEN}✅ iptables 规则始终有效${NC}"
+            echo "当前规则："
+            iptables -L INPUT -n --line-numbers | head -20
             ;;
         $FW_NFTABLES)
-            nft list ruleset > "$backup_dir/nftables_$timestamp.conf"
-            log_success "nftables 规则已备份到: $backup_dir/nftables_$timestamp.conf"
+            if systemctl is-active nftables >/dev/null 2>&1; then
+                echo -e "${GREEN}✅ nftables 服务已启用并运行${NC}"
+                echo "当前规则："
+                nft list table inet filter 2>/dev/null | head -20
+            else
+                echo -e "${YELLOW}⚠️  nftables 服务未运行${NC}"
+                read -p "是否启动 nftables 服务？ [y/N]: " start_nft
+                if [[ $start_nft =~ ^[Yy]$ ]]; then
+                    systemctl start nftables
+                    systemctl enable nftables
+                    log_success "nftables 服务已启动并设为开机自启"
+                else
+                    echo -e "${BLUE}nftables 服务保持停止状态${NC}"
+                fi
+            fi
             ;;
         *)
-            log_error "无法备份未知类型的防火墙"
+            log_error "不支持的防火墙类型"
             ;;
     esac
 
+    echo ""
+    wait_for_user
+}
+
+# 停用防火墙规则
+disable_firewall_rules() {
+    log_info "停用防火墙规则"
+
+    echo -e "${BLUE}=== 停用防火墙规则 ===${NC}"
+    echo ""
+
+    echo -e "${RED}⚠️  警告: 停用防火墙规则将降低系统安全性${NC}"
+    echo ""
+    read -p "确认要停用防火墙规则吗？ [y/N]: " confirm
+
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}操作已取消${NC}"
+        wait_for_user
+        return 0
+    fi
+
+    case $DETECTED_FIREWALL in
+        $FW_FIREWALLD)
+            if systemctl is-active firewalld >/dev/null 2>&1; then
+                systemctl stop firewalld
+                systemctl disable firewalld
+                log_success "firewalld 服务已停止并禁用开机自启"
+            else
+                echo -e "${BLUE}firewalld 服务已处于停止状态${NC}"
+            fi
+            ;;
+        $FW_UFW)
+            if ufw status | grep -q "Status: active"; then
+                ufw --force disable
+                log_success "ufw 防火墙已停用"
+            else
+                echo -e "${BLUE}ufw 防火墙已处于停用状态${NC}"
+            fi
+            ;;
+        $FW_IPTABLES)
+            echo -e "${YELLOW}⚠️  iptables 规则管理${NC}"
+            echo "选择操作："
+            echo "1. 清空所有规则（允许所有流量）"
+            echo "2. 设置默认拒绝策略但保留现有规则"
+            echo "3. 取消操作"
+            echo ""
+            read -p "请选择 [1-3]: " iptables_choice
+
+            case $iptables_choice in
+                1)
+                    iptables -F INPUT
+                    iptables -P INPUT ACCEPT
+                    save_iptables_rules
+                    log_success "已清空 iptables INPUT 规则并设为允许所有"
+                    ;;
+                2)
+                    iptables -P INPUT DROP
+                    save_iptables_rules
+                    log_success "已设置 iptables 默认拒绝策略"
+                    ;;
+                3)
+                    echo -e "${BLUE}操作已取消${NC}"
+                    ;;
+            esac
+            ;;
+        $FW_NFTABLES)
+            if systemctl is-active nftables >/dev/null 2>&1; then
+                systemctl stop nftables
+                systemctl disable nftables
+                log_success "nftables 服务已停止并禁用开机自启"
+            else
+                echo -e "${BLUE}nftables 服务已处于停止状态${NC}"
+            fi
+            ;;
+        *)
+            log_error "不支持的防火墙类型"
+            ;;
+    esac
+
+    echo ""
     wait_for_user
 }
 
@@ -955,7 +1194,7 @@ manage_firewall() {
         case $choice in
             1) show_firewall_status ;;
             2) smart_manage_hysteria_port ;;
-            3) open_hysteria_port ;;
+            3) open_custom_port ;;
             4) manage_firewall_rules ;;
             5) manage_firewall_service ;;
             0)
