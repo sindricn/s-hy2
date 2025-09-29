@@ -61,7 +61,8 @@
       "Bash(./debug_rules_issue.sh:*)",
       "Bash(source:*)",
       "Bash(view_outbound_rules)",
-      "Bash(check_rule_type_conflict:*)"
+      "Bash(check_rule_type_conflict:*)",
+      "Bash(apply_outbound_rule)"
     ],
     "deny": []
   }

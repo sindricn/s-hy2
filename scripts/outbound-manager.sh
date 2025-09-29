@@ -1775,29 +1775,12 @@ apply_outbound_rule() {
     echo -e "${BLUE}=== 应用规则到配置 ===${NC}"
     echo ""
 
-    # 列出规则库中未应用的规则
+    # 列出规则库中未应用的规则 - 使用可靠的grep方法
     local unapplied_rules=()
     local rule_count=0
 
-    local in_rules_section=0
-    while IFS= read -r line; do
-        # 检查是否进入rules节点
-        if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
-            in_rules_section=1
-            continue
-        fi
-
-        # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
-        if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local key="${BASH_REMATCH[1]}"
-            if [[ "$key" != "rules" ]]; then
-                in_rules_section=0
-            fi
-        fi
-
-        # 在rules节点内且为2级缩进的规则名
-        if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local rule_name="${BASH_REMATCH[1]}"
+    while IFS= read -r rule_name; do
+        if [[ -n "$rule_name" ]]; then
             # 检查是否已应用
             if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
                 unapplied_rules+=("$rule_name")
@@ -1805,7 +1788,7 @@ apply_outbound_rule() {
                 echo "$rule_count. $rule_name"
             fi
         fi
-    done < "$RULES_LIBRARY"
+    done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
 
     if [[ ${#unapplied_rules[@]} -eq 0 ]]; then
         echo -e "${YELLOW}没有可应用的规则${NC}"
@@ -2045,34 +2028,17 @@ modify_outbound_rule() {
     echo -e "${BLUE}=== 修改出站规则 ===${NC}"
     echo ""
 
-    # 列出规则库中的规则
+    # 列出规则库中的规则 - 使用可靠的grep方法
     local rules=()
     local rule_count=0
 
-    local in_rules_section=0
-    while IFS= read -r line; do
-        # 检查是否进入rules节点
-        if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
-            in_rules_section=1
-            continue
-        fi
-
-        # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
-        if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local key="${BASH_REMATCH[1]}"
-            if [[ "$key" != "rules" ]]; then
-                in_rules_section=0
-            fi
-        fi
-
-        # 在rules节点内且为2级缩进的规则名
-        if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local rule_name="${BASH_REMATCH[1]}"
+    while IFS= read -r rule_name; do
+        if [[ -n "$rule_name" ]]; then
             rules+=("$rule_name")
             ((rule_count++))
             echo "$rule_count. $rule_name"
         fi
-    done < "$RULES_LIBRARY"
+    done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
 
     if [[ ${#rules[@]} -eq 0 ]]; then
         echo -e "${YELLOW}没有可修改的规则${NC}"
@@ -2153,29 +2119,12 @@ delete_outbound_rule_new() {
     echo -e "${BLUE}=== 删除出站规则 ===${NC}"
     echo ""
 
-    # 列出规则库中的规则
+    # 列出规则库中的规则 - 使用可靠的grep方法
     local rules=()
     local rule_count=0
 
-    local in_rules_section=0
-    while IFS= read -r line; do
-        # 检查是否进入rules节点
-        if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
-            in_rules_section=1
-            continue
-        fi
-
-        # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
-        if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local key="${BASH_REMATCH[1]}"
-            if [[ "$key" != "rules" ]]; then
-                in_rules_section=0
-            fi
-        fi
-
-        # 在rules节点内且为2级缩进的规则名
-        if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-            local rule_name="${BASH_REMATCH[1]}"
+    while IFS= read -r rule_name; do
+        if [[ -n "$rule_name" ]]; then
             rules+=("$rule_name")
             ((rule_count++))
 
@@ -2186,7 +2135,7 @@ delete_outbound_rule_new() {
             fi
             echo "$rule_count. $rule_name $status"
         fi
-    done < "$RULES_LIBRARY"
+    done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
 
     if [[ ${#rules[@]} -eq 0 ]]; then
         echo -e "${YELLOW}没有可删除的规则${NC}"
