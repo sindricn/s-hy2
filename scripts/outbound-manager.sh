@@ -1942,6 +1942,68 @@ apply_rule_to_config_simple() {
     log_info "检测到规则类型: $rule_type"
     log_debug "开始检查配置文件中的同类型规则: $HYSTERIA_CONFIG"
 
+    # 先提取配置参数（在使用前定义变量）
+    local mode="" bindDevice="" addr="" url=""
+    case "$rule_type" in
+        "direct")
+            mode=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*mode:[[:space:]]*/ {
+                gsub(/^[[:space:]]*mode:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            bindDevice=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*bindDevice:[[:space:]]*/ {
+                gsub(/^[[:space:]]*bindDevice:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+            ;;
+        "socks5")
+            addr=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*addr:[[:space:]]*/ {
+                gsub(/^[[:space:]]*addr:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+            ;;
+        "http")
+            url=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*url:[[:space:]]*/ {
+                gsub(/^[[:space:]]*url:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0;
+                exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+            ;;
+    esac
+
+    log_debug "提取的配置参数: mode=$mode, bindDevice=$bindDevice, addr=$addr, url=$url"
+
     # 检查是否存在同类型的已应用规则
     local existing_rule=""
     if existing_rule=$(check_existing_outbound_type "$rule_type"); then
@@ -1978,72 +2040,6 @@ apply_rule_to_config_simple() {
         esac
     fi
 
-    # 提取配置参数
-    case "$rule_type" in
-        "direct")
-            # 提取direct配置参数
-            local mode bindDevice bindIPv4 bindIPv6
-            mode=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*mode:[[:space:]]*/ {
-                gsub(/^[[:space:]]*mode:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            bindDevice=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*bindDevice:[[:space:]]*/ {
-                gsub(/^[[:space:]]*bindDevice:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-            ;;
-
-        "socks5")
-            # 提取socks5配置参数
-            local addr username password
-            addr=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*addr:[[:space:]]*/ {
-                gsub(/^[[:space:]]*addr:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-            ;;
-
-        "http")
-            # 提取http配置参数
-            local url insecure
-            url=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*url:[[:space:]]*/ {
-                gsub(/^[[:space:]]*url:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-            ;;
-    esac
 
     # 直接操作，不创建不必要的备份
 
