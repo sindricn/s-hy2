@@ -27,7 +27,141 @@ fi
 init_outbound_manager() {
     log_info "初始化出站规则管理器"
 
-    # 模板功能已移除
+    # 检查必要的命令
+    require_command "awk"
+    require_command "grep"
+    require_command "sed"
+
+    # 检查 Hysteria2 安装状态
+    check_hysteria2_installation
+}
+
+# 检查 Hysteria2 安装和配置状态
+check_hysteria2_installation() {
+    local has_binary=false
+    local has_config_dir=false
+
+    # 检查二进制文件
+    if command -v hysteria >/dev/null 2>&1; then
+        has_binary=true
+    fi
+
+    # 检查配置目录
+    if [[ -d "/etc/hysteria" ]]; then
+        has_config_dir=true
+    fi
+
+    # 根据检查结果提供指导
+    if ! $has_binary; then
+        echo ""
+        echo -e "${RED}❌ Hysteria2 未安装${NC}"
+        echo -e "${YELLOW}请先安装 Hysteria2 才能使用出站规则管理功能${NC}"
+        echo ""
+        echo -e "${BLUE}安装建议：${NC}"
+        echo "1. 返回主菜单选择 '1. 安装 Hysteria2'"
+        echo "2. 或手动安装: curl -fsSL https://get.hy2.sh/ | bash"
+        echo ""
+        read -p "按回车键返回主菜单..." -r
+        return 1
+    fi
+
+    if ! $has_config_dir; then
+        echo ""
+        echo -e "${YELLOW}⚠️  配置目录不存在${NC}"
+        echo -e "${BLUE}正在创建配置目录: /etc/hysteria${NC}"
+
+        if mkdir -p "/etc/hysteria" 2>/dev/null; then
+            echo -e "${GREEN}✅ 配置目录创建成功${NC}"
+        else
+            echo -e "${RED}❌ 无法创建配置目录，可能需要 root 权限${NC}"
+            echo "请以 root 用户运行此脚本，或手动创建: sudo mkdir -p /etc/hysteria"
+            read -p "按回车键继续..." -r
+            return 1
+        fi
+    fi
+
+    # 检查配置文件是否存在，不存在则创建基础配置
+    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  配置文件不存在: $HYSTERIA_CONFIG${NC}"
+        echo -e "${BLUE}正在创建基础配置文件...${NC}"
+
+        create_basic_hysteria_config
+    fi
+
+    # 检查配置文件权限
+    check_config_file_permissions
+
+    return 0
+}
+
+# 创建基础 Hysteria2 配置文件
+create_basic_hysteria_config() {
+    cat > "$HYSTERIA_CONFIG" << 'EOF'
+# Hysteria2 服务器配置文件
+# 此文件由 S-HY2 出站规则管理器创建
+
+listen: :443
+
+# TLS 配置 (请根据实际情况修改)
+# tls:
+#   cert: /path/to/your/cert.crt
+#   key: /path/to/your/private.key
+
+# 认证配置 (请根据实际情况修改)
+auth:
+  type: password
+  password: "your_password_here"
+
+# 混淆配置 (可选)
+# obfs:
+#   type: salamander
+#   salamander:
+#     password: "your_obfs_password"
+
+# 出站配置将由规则管理器自动管理
+# outbounds 段落请勿手动编辑
+EOF
+
+    if [[ -f "$HYSTERIA_CONFIG" ]]; then
+        echo -e "${GREEN}✅ 基础配置文件创建成功${NC}"
+        echo -e "${YELLOW}⚠️  请编辑配置文件设置 TLS 证书和认证密码:${NC}"
+        echo -e "${CYAN}  $HYSTERIA_CONFIG${NC}"
+    else
+        echo -e "${RED}❌ 配置文件创建失败${NC}"
+        return 1
+    fi
+}
+
+# 检查和修复配置文件权限
+check_config_file_permissions() {
+    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
+        return 1
+    fi
+
+    # 检查文件权限
+    local file_perms=$(stat -c "%a" "$HYSTERIA_CONFIG" 2>/dev/null || stat -f "%A" "$HYSTERIA_CONFIG" 2>/dev/null || echo "unknown")
+
+    # 如果权限太严格，修复权限
+    if [[ "$file_perms" == "600" ]] || [[ "$file_perms" == "700" ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  配置文件权限过于严格: $file_perms${NC}"
+        echo -e "${BLUE}正在修复权限...${NC}"
+
+        if chmod 644 "$HYSTERIA_CONFIG" 2>/dev/null; then
+            echo -e "${GREEN}✅ 权限修复成功 (644)${NC}"
+        else
+            echo -e "${RED}❌ 权限修复失败，可能需要 root 权限${NC}"
+            echo "请手动执行: sudo chmod 644 $HYSTERIA_CONFIG"
+        fi
+    fi
+
+    # 检查目录权限
+    local config_dir=$(dirname "$HYSTERIA_CONFIG")
+    if [[ ! -r "$config_dir" ]]; then
+        echo -e "${YELLOW}⚠️  配置目录权限问题${NC}"
+        echo "请检查目录权限: $config_dir"
+    fi
 }
 
 # 显示出站管理菜单
@@ -571,7 +705,7 @@ delete_existing_rule_silent() {
     fi
 
     # 应用修改
-    if mv "$temp_config" "$HYSTERIA_CONFIG" 2>/dev/null; then
+    if safe_move_config "$temp_config" "$HYSTERIA_CONFIG"; then
         echo -e "${GREEN}[SUCCESS]${NC} 现有规则 '$rule_name' 已删除"
         return 0
     else
@@ -906,7 +1040,7 @@ EOF
 
     # 应用配置
     echo -e "${BLUE}[INFO]${NC} 应用新配置"
-    if mv "$temp_file" "$HYSTERIA_CONFIG" 2>/dev/null; then
+    if safe_move_config "$temp_file" "$HYSTERIA_CONFIG"; then
         echo -e "${GREEN}[SUCCESS]${NC} 配置已成功应用"
         return 0
     else
@@ -2128,6 +2262,20 @@ apply_rule_to_config_simple() {
         ' "$RULES_LIBRARY"
     }
 
+    # 安全移动配置文件并修复权限
+    safe_move_config() {
+        local temp_file="$1"
+        local target_file="$2"
+
+        if mv "$temp_file" "$target_file" 2>/dev/null; then
+            # 修复配置文件权限，确保 Hysteria2 服务可以读取
+            chmod 644 "$target_file" 2>/dev/null
+            return 0
+        else
+            return 1
+        fi
+    }
+
     # 先提取配置参数（在使用前定义变量）- 完整参数支持
     local mode="" bindDevice="" bindIPv4="" bindIPv6="" fastOpen=""
     local addr="" username="" password="" url="" insecure=""
@@ -2277,7 +2425,14 @@ EOF
 
     # 应用配置
     if [[ -s "$temp_config" ]]; then
-        mv "$temp_config" "$HYSTERIA_CONFIG"
+        if safe_move_config "$temp_config" "$HYSTERIA_CONFIG"; then
+            log_debug "配置文件权限已修复为 644"
+        else
+            log_error "配置应用失败"
+            rm -f "$temp_config"
+            return 1
+        fi
+
         log_success "规则 '$rule_name' 已应用到配置文件"
 
         # 更新状态文件
@@ -2770,7 +2925,7 @@ delete_outbound_rule_new() {
                 fi
             done < "$HYSTERIA_CONFIG"
 
-            mv "$temp_config" "$HYSTERIA_CONFIG"
+            safe_move_config "$temp_config" "$HYSTERIA_CONFIG"
         fi
 
         # 从状态文件中移除
