@@ -246,8 +246,6 @@ add_outbound_rule() {
 
     echo -e "${BLUE}=== 添加出站规则 ===${NC}"
     echo ""
-    echo -e "${YELLOW}注意: 每种类型只能有一个出站规则，添加同类型规则将覆盖现有规则${NC}"
-    echo ""
     echo "选择出站类型："
     echo "1. Direct (直连)"
     echo "2. SOCKS5 代理"
@@ -269,48 +267,18 @@ add_outbound_rule() {
             ;;
     esac
 
-    # 立即进行类型冲突检测
-    local existing_rule=""
-    if existing_rule=$(check_existing_outbound_type "$selected_type"); then
-        echo ""
-        echo -e "${YELLOW}⚠️  类型冲突检测 ⚠️${NC}"
-        echo -e "${YELLOW}检测到现有的 ${selected_type} 类型规则: ${CYAN}$existing_rule${NC}"
-        echo -e "${YELLOW}根据系统设计，每种类型只能有一个出站规则${NC}"
-        echo ""
-        echo -e "${BLUE}选择操作：${NC}"
-        echo -e "${GREEN}1.${NC} 继续添加并覆盖现有规则 ${CYAN}$existing_rule${NC}"
-        echo -e "${RED}2.${NC} 取消添加操作"
-        echo ""
-        read -p "请选择 [1-2]: " conflict_choice
+    echo -e "${GREEN}已选择类型: $selected_type${NC}"
 
-        case $conflict_choice in
-            1)
-                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $selected_type 规则: $existing_rule"
-                echo -e "${BLUE}[INFO]${NC} 继续配置新规则..."
-                echo ""
-                ;;
-            2)
-                echo -e "${BLUE}[INFO]${NC} 已取消添加操作"
-                return 0
-                ;;
-            *)
-                echo -e "${RED}[ERROR]${NC} 无效选择，取消操作"
-                return 1
-                ;;
-        esac
-    fi
-
-    # 执行对应的配置函数，传入要覆盖的规则名称
+    # 执行对应的配置函数
     case $choice in
-        1) add_direct_outbound "$existing_rule" ;;
-        2) add_socks5_outbound "$existing_rule" ;;
-        3) add_http_outbound "$existing_rule" ;;
+        1) add_direct_outbound ;;
+        2) add_socks5_outbound ;;
+        3) add_http_outbound ;;
     esac
 }
 
 # 添加直连出站
 add_direct_outbound() {
-    local existing_rule="${1:-}"
     echo -e "${BLUE}=== 配置 Direct 直连出站 ===${NC}"
     echo ""
 
@@ -360,7 +328,6 @@ add_direct_outbound() {
 
 # 添加 SOCKS5 出站
 add_socks5_outbound() {
-    local existing_rule="${1:-}"
     echo -e "${BLUE}=== 配置 SOCKS5 代理出站 ===${NC}"
     echo ""
 
@@ -396,7 +363,6 @@ add_socks5_outbound() {
 
 # 添加 HTTP 出站
 add_http_outbound() {
-    local existing_rule="${1:-}"
     echo -e "${BLUE}=== 配置 HTTP/HTTPS 代理出站 ===${NC}"
     echo ""
 
@@ -1790,9 +1756,12 @@ view_outbound_rules() {
         while IFS= read -r rule_name; do
             if [[ -n "$rule_name" ]]; then
                 ((lib_count++))
-                # 检查是否已应用
+                # 检查是否已应用 - 精确匹配规则名称
                 local status="❌ 未应用"
-                if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                # 首先检查配置文件中是否存在此规则
+                if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
+                    status="✅ 已应用"
+                elif grep -q "^[[:space:]]*-[[:space:]]*${rule_name}[[:space:]]*$" "$RULES_STATE" 2>/dev/null; then
                     status="✅ 已应用"
                 fi
                 echo "  $lib_count. $rule_name $status"
@@ -2002,7 +1971,7 @@ add_outbound_rule_new() {
 
         # 检查是否已存在（检查2级缩进的规则名）
         if grep -q "^[[:space:]]\{2\}$rule_name:[[:space:]]*$" "$RULES_LIBRARY" 2>/dev/null; then
-            echo -e "${RED}规则名称已存在${NC}"
+            echo -e "${RED}已存在同名的规则，需要重新录入其他名称${NC}"
             continue
         fi
 
@@ -2037,19 +2006,8 @@ add_outbound_rule_new() {
             ;;
     esac
 
-    # 检查类型冲突
-    echo -e "${YELLOW}检查类型冲突...${NC}"
-    local existing_type_rule=$(check_rule_type_conflict "$rule_type")
-    if [[ -n "$existing_type_rule" ]]; then
-        echo -e "${RED}错误: 已存在 $rule_type 类型的规则: $existing_type_rule${NC}"
-        echo -e "${YELLOW}每种类型只能存在一个规则。${NC}"
-        read -p "是否要替换现有规则？ [y/N]: " replace_choice
-        if [[ ! $replace_choice =~ ^[Yy]$ ]]; then
-            echo -e "${YELLOW}操作已取消${NC}"
-            return 1
-        fi
-        echo -e "${BLUE}将替换现有规则: $existing_type_rule${NC}"
-    fi
+    # 名称冲突已在前面检查，允许同类型多个规则
+    echo -e "${GREEN}规则类型: $rule_type${NC}"
 
     # 收集配置
     local config_data=""
@@ -2306,41 +2264,8 @@ apply_rule_to_config_simple() {
 
     log_debug "提取的配置参数: mode=$mode, bindDevice=$bindDevice, addr=$addr, url=$url"
 
-    # 检查是否存在同类型的已应用规则
-    local existing_rule=""
-    if existing_rule=$(check_existing_outbound_type "$rule_type"); then
-        echo ""
-        echo -e "${YELLOW}⚠️  类型冲突检测 ⚠️${NC}"
-        echo -e "${YELLOW}检测到配置文件中已存在 ${rule_type} 类型规则: ${CYAN}$existing_rule${NC}"
-        echo -e "${YELLOW}根据系统设计，每种类型只能有一个出站规则${NC}"
-        echo ""
-        echo -e "${BLUE}选择操作：${NC}"
-        echo -e "${GREEN}1.${NC} 继续应用并覆盖现有规则 ${CYAN}$existing_rule${NC}"
-        echo -e "${RED}2.${NC} 取消应用操作"
-        echo ""
-        read -p "请选择 [1-2]: " conflict_choice
-
-        case $conflict_choice in
-            1)
-                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $rule_type 规则: $existing_rule"
-                echo -e "${BLUE}[INFO]${NC} 继续应用新规则..."
-                echo ""
-                # 先删除现有的同类型规则
-                if ! delete_existing_outbound_from_config "$existing_rule"; then
-                    log_warn "删除现有规则失败，将尝试直接覆盖"
-                    # 删除失败时不退出，而是继续尝试应用新规则
-                fi
-                ;;
-            2)
-                echo -e "${BLUE}[INFO]${NC} 已取消应用操作"
-                return 0
-                ;;
-            *)
-                log_error "无效选择"
-                return 1
-                ;;
-        esac
-    fi
+    # 允许同类型多个规则，直接应用
+    echo -e "${GREEN}准备应用 $rule_type 类型规则: $rule_name${NC}"
 
 
     # 直接操作，不创建不必要的备份
@@ -2437,23 +2362,25 @@ EOF
 
         # 更新状态文件
         if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
-            sed -i "/applied_rules:/a\\  - $rule_name" "$RULES_STATE" 2>/dev/null ||
-            local temp_state="${RULES_STATE}.tmp"
-            if awk -v rule="$rule_name" '
-            /^applied_rules:/ {
-                print $0
-                print "  - " rule
-                next
-            }
-            { print }
-            ' "$RULES_STATE" > "$temp_state" 2>/dev/null; then
-                if [[ -s "$temp_state" ]]; then
-                    mv "$temp_state" "$RULES_STATE" 2>/dev/null || rm -f "$temp_state"
+            # 尝试使用 sed 直接添加，失败则使用 awk 方式
+            if ! sed -i "/applied_rules:/a\\  - $rule_name" "$RULES_STATE" 2>/dev/null; then
+                local temp_state="${RULES_STATE}.tmp"
+                if awk -v rule="$rule_name" '
+                /^applied_rules:/ {
+                    print $0
+                    print "  - " rule
+                    next
+                }
+                { print }
+                ' "$RULES_STATE" > "$temp_state" 2>/dev/null; then
+                    if [[ -s "$temp_state" ]]; then
+                        mv "$temp_state" "$RULES_STATE" 2>/dev/null || rm -f "$temp_state"
+                    else
+                        rm -f "$temp_state"
+                    fi
                 else
                     rm -f "$temp_state"
                 fi
-            else
-                rm -f "$temp_state"
             fi
         fi
 
