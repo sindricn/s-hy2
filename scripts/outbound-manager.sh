@@ -2110,6 +2110,24 @@ apply_rule_to_config_simple() {
     log_info "检测到规则类型: $rule_type"
     log_debug "开始检查配置文件中的同类型规则: $HYSTERIA_CONFIG"
 
+    # 通用参数提取函数（去除引号）
+    extract_rule_parameter() {
+        local rule_name="$1"
+        local param_name="$2"
+        awk -v rule="$rule_name" -v param="$param_name" '
+        BEGIN { in_rule = 0; in_config = 0 }
+        $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+        in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+        in_rule && in_config && $0 ~ "^[[:space:]]*" param ":[[:space:]]*" {
+            gsub(/^[[:space:]]*[^:]*:[[:space:]]*/, "");
+            gsub(/[[:space:]]*$/, "");
+            gsub(/^"/, ""); gsub(/"$/, "");  # 去除前后引号
+            print $0; exit
+        }
+        in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+        ' "$RULES_LIBRARY"
+    }
+
     # 先提取配置参数（在使用前定义变量）- 完整参数支持
     local mode="" bindDevice="" bindIPv4="" bindIPv6="" fastOpen=""
     local addr="" username="" password="" url="" insecure=""
@@ -2117,131 +2135,24 @@ apply_rule_to_config_simple() {
     case "$rule_type" in
         "direct")
             # 提取direct类型的所有参数
-            mode=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*mode:[[:space:]]*/ {
-                gsub(/^[[:space:]]*mode:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            bindDevice=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*bindDevice:[[:space:]]*/ {
-                gsub(/^[[:space:]]*bindDevice:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            bindIPv4=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*bindIPv4:[[:space:]]*/ {
-                gsub(/^[[:space:]]*bindIPv4:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            bindIPv6=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*bindIPv6:[[:space:]]*/ {
-                gsub(/^[[:space:]]*bindIPv6:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            fastOpen=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*fastOpen:[[:space:]]*/ {
-                gsub(/^[[:space:]]*fastOpen:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
+            mode=$(extract_rule_parameter "$rule_name" "mode")
+            bindDevice=$(extract_rule_parameter "$rule_name" "bindDevice")
+            bindIPv4=$(extract_rule_parameter "$rule_name" "bindIPv4")
+            bindIPv6=$(extract_rule_parameter "$rule_name" "bindIPv6")
+            fastOpen=$(extract_rule_parameter "$rule_name" "fastOpen")
             ;;
 
         "socks5")
             # 提取socks5类型的所有参数
-            addr=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*addr:[[:space:]]*/ {
-                gsub(/^[[:space:]]*addr:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            username=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*username:[[:space:]]*/ {
-                gsub(/^[[:space:]]*username:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            password=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*password:[[:space:]]*/ {
-                gsub(/^[[:space:]]*password:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
+            addr=$(extract_rule_parameter "$rule_name" "addr")
+            username=$(extract_rule_parameter "$rule_name" "username")
+            password=$(extract_rule_parameter "$rule_name" "password")
             ;;
 
         "http")
             # 提取http类型的所有参数
-            url=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*url:[[:space:]]*/ {
-                gsub(/^[[:space:]]*url:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
-
-            insecure=$(awk -v rule="$rule_name" '
-            BEGIN { in_rule = 0; in_config = 0 }
-            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
-            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
-            in_rule && in_config && /^[[:space:]]*insecure:[[:space:]]*/ {
-                gsub(/^[[:space:]]*insecure:[[:space:]]*/, "");
-                gsub(/[[:space:]]*$/, "");
-                print $0; exit
-            }
-            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
-            ' "$RULES_LIBRARY")
+            url=$(extract_rule_parameter "$rule_name" "url")
+            insecure=$(extract_rule_parameter "$rule_name" "insecure")
             ;;
     esac
 
@@ -2725,6 +2636,7 @@ get_rule_config_value() {
     in_rule && in_config && $0 ~ "^[[:space:]]*" param ":[[:space:]]*" {
         gsub(/^[[:space:]]*[^:]*:[[:space:]]*/, "");
         gsub(/[[:space:]]*$/, "");
+        gsub(/^"/, ""); gsub(/"$/, "");  # 去除前后引号
         print $0;
         exit
     }
