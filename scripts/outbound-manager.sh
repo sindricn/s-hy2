@@ -2438,14 +2438,23 @@ EOF
         # 更新状态文件
         if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
             sed -i "/applied_rules:/a\\  - $rule_name" "$RULES_STATE" 2>/dev/null ||
-            awk -v rule="$rule_name" '
+            local temp_state="${RULES_STATE}.tmp"
+            if awk -v rule="$rule_name" '
             /^applied_rules:/ {
                 print $0
                 print "  - " rule
                 next
             }
             { print }
-            ' "$RULES_STATE" > "${RULES_STATE}.tmp" && mv "${RULES_STATE}.tmp" "$RULES_STATE"
+            ' "$RULES_STATE" > "$temp_state" 2>/dev/null; then
+                if [[ -s "$temp_state" ]]; then
+                    mv "$temp_state" "$RULES_STATE" 2>/dev/null || rm -f "$temp_state"
+                else
+                    rm -f "$temp_state"
+                fi
+            else
+                rm -f "$temp_state"
+            fi
         fi
 
         log_info "状态已更新"
@@ -2929,10 +2938,19 @@ delete_outbound_rule_new() {
         fi
 
         # 从状态文件中移除
-        awk -v rule="$selected_rule" '
+        local temp_state="${RULES_STATE}.tmp"
+        if awk -v rule="$selected_rule" '
         $0 == "  - " rule { next }
         { print }
-        ' "$RULES_STATE" > "${RULES_STATE}.tmp" && mv "${RULES_STATE}.tmp" "$RULES_STATE"
+        ' "$RULES_STATE" > "$temp_state" 2>/dev/null; then
+            if [[ -s "$temp_state" ]]; then
+                mv "$temp_state" "$RULES_STATE" 2>/dev/null || rm -f "$temp_state"
+            else
+                rm -f "$temp_state"
+            fi
+        else
+            rm -f "$temp_state"
+        fi
     fi
 
     # 从规则库中删除
