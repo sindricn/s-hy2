@@ -171,7 +171,7 @@ show_outbound_menu() {
     echo ""
     echo -e "${GREEN}1.${NC} 查看出站规则"
     echo -e "${GREEN}2.${NC} 新增出站规则"
-    echo -e "${GREEN}3.${NC} 应用规则到配置"
+    echo -e "${GREEN}3.${NC} 应用出站规则"
     echo -e "${GREEN}4.${NC} 修改出站规则"
     echo -e "${GREEN}5.${NC} 删除出站规则"
     echo ""
@@ -2116,11 +2116,11 @@ add_outbound_rule_new() {
     wait_for_user
 }
 
-# 3. 应用规则到配置
+# 3. 应用出站规则
 apply_outbound_rule() {
     init_rules_library
 
-    echo -e "${BLUE}=== 应用规则到配置 ===${NC}"
+    echo -e "${BLUE}=== 应用出站规则 ===${NC}"
     echo ""
 
     # 列出规则库中未应用的规则 - 使用可靠的grep方法
@@ -2158,7 +2158,7 @@ apply_outbound_rule() {
     wait_for_user
 }
 
-# 应用规则到配置的简化实现
+# 应用出站规则的简化实现
 # 新的规则应用函数 - 符合Hysteria2官方标准
 apply_rule_to_config_simple() {
     local rule_name="$1"
