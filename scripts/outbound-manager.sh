@@ -581,6 +581,84 @@ delete_existing_rule_silent() {
     fi
 }
 
+# 删除配置文件中的指定outbound规则（用于覆盖操作）
+delete_existing_outbound_from_config() {
+    local rule_name="$1"
+    local config_file="${2:-$HYSTERIA_CONFIG}"
+
+    if [[ -z "$rule_name" ]]; then
+        log_error "规则名称不能为空"
+        return 1
+    fi
+
+    if [[ ! -f "$config_file" ]]; then
+        log_warn "配置文件不存在: $config_file"
+        return 0  # 文件不存在视为成功删除
+    fi
+
+    echo -e "${BLUE}[INFO]${NC} 从配置文件中删除规则: $rule_name"
+
+    # 创建临时文件
+    local temp_config="/tmp/hysteria_delete_outbound_$$_$(date +%s).yaml"
+
+    # 删除指定的outbound规则
+    local in_outbound_rule=false
+    local in_outbounds_section=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local should_keep=true
+
+        # 检测outbounds节点
+        if [[ "$line" =~ ^[[:space:]]*outbounds:[[:space:]]*$ ]]; then
+            in_outbounds_section=true
+            should_keep=true
+        elif [[ "$in_outbounds_section" == true ]]; then
+            # 在outbounds节点中
+
+            # 检测目标规则开始
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+                in_outbound_rule=true
+                should_keep=false
+            elif [[ "$in_outbound_rule" == true ]]; then
+                # 在目标规则块中，检查是否结束
+                if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http): ]]; then
+                    # 遇到下一个规则或顶级节点，结束当前规则删除
+                    in_outbound_rule=false
+                    # 检查是否离开outbounds节点
+                    if [[ "$line" =~ ^[a-zA-Z]+:[[:space:]]*$ ]]; then
+                        in_outbounds_section=false
+                    fi
+                    should_keep=true
+                else
+                    # 仍在目标规则块中，继续删除
+                    should_keep=false
+                fi
+            else
+                # 不在目标规则块中，检查是否离开outbounds节点
+                if [[ "$line" =~ ^[a-zA-Z]+:[[:space:]]*$ ]]; then
+                    in_outbounds_section=false
+                fi
+                should_keep=true
+            fi
+        fi
+
+        # 保留需要的行
+        if [[ "$should_keep" == true ]]; then
+            echo "$line" >> "$temp_config"
+        fi
+    done < "$config_file"
+
+    # 替换原文件
+    if mv "$temp_config" "$config_file" 2>/dev/null; then
+        echo -e "${GREEN}[SUCCESS]${NC} 规则 '$rule_name' 已从配置文件中删除"
+        return 0
+    else
+        log_error "删除规则失败，文件操作错误"
+        rm -f "$temp_config"
+        return 1
+    fi
+}
+
 # 极简稳定的配置应用函数
 apply_outbound_simple() {
     local name="$1" type="$2" existing_rule="${3:-}"
@@ -1850,6 +1928,42 @@ apply_rule_to_config_simple() {
     fi
 
     log_info "检测到规则类型: $rule_type"
+
+    # 检查是否存在同类型的已应用规则
+    local existing_rule=""
+    if existing_rule=$(check_existing_outbound_type "$rule_type"); then
+        echo ""
+        echo -e "${YELLOW}⚠️  类型冲突检测 ⚠️${NC}"
+        echo -e "${YELLOW}检测到配置文件中已存在 ${rule_type} 类型规则: ${CYAN}$existing_rule${NC}"
+        echo -e "${YELLOW}根据系统设计，每种类型只能有一个出站规则${NC}"
+        echo ""
+        echo -e "${BLUE}选择操作：${NC}"
+        echo -e "${GREEN}1.${NC} 继续应用并覆盖现有规则 ${CYAN}$existing_rule${NC}"
+        echo -e "${RED}2.${NC} 取消应用操作"
+        echo ""
+        read -p "请选择 [1-2]: " conflict_choice
+
+        case $conflict_choice in
+            1)
+                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $rule_type 规则: $existing_rule"
+                echo -e "${BLUE}[INFO]${NC} 继续应用新规则..."
+                echo ""
+                # 先删除现有的同类型规则
+                if ! delete_existing_outbound_from_config "$existing_rule"; then
+                    log_error "删除现有规则失败"
+                    return 1
+                fi
+                ;;
+            2)
+                echo -e "${BLUE}[INFO]${NC} 已取消应用操作"
+                return 0
+                ;;
+            *)
+                log_error "无效选择"
+                return 1
+                ;;
+        esac
+    fi
 
     # 提取配置参数
     case "$rule_type" in
