@@ -1562,26 +1562,9 @@ view_outbound_rules() {
     echo -e "${CYAN}📚 规则库中的规则：${NC}"
     if [[ -f "$RULES_LIBRARY" ]] && grep -q "rules:" "$RULES_LIBRARY"; then
         local lib_count=0
-        # 解析YAML中的规则（只识别rules节点下的规则）
-        local in_rules_section=0
-        while IFS= read -r line; do
-            # 检查是否进入rules节点
-            if [[ "$line" =~ ^[[:space:]]*rules:[[:space:]]*$ ]]; then
-                in_rules_section=1
-                continue
-            fi
-
-            # 如果遇到0级缩进的节点（顶级节点）且已在rules节点内，退出rules节点
-            if [[ "$in_rules_section" == "1" ]] && [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-                local key="${BASH_REMATCH[1]}"
-                if [[ "$key" != "rules" ]]; then
-                    in_rules_section=0
-                fi
-            fi
-
-            # 在rules节点内且为2级缩进的规则名
-            if [[ "$in_rules_section" == "1" && "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*$ ]]; then
-                local rule_name="${BASH_REMATCH[1]}"
+        # 使用简单可靠的grep方法直接提取规则名
+        while IFS= read -r rule_name; do
+            if [[ -n "$rule_name" ]]; then
                 ((lib_count++))
                 # 检查是否已应用
                 local status="❌ 未应用"
@@ -1590,7 +1573,7 @@ view_outbound_rules() {
                 fi
                 echo "  $lib_count. $rule_name $status"
             fi
-        done < "$RULES_LIBRARY"
+        done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
 
         if [[ $lib_count -eq 0 ]]; then
             echo "  (无规则)"

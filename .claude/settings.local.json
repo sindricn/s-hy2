@@ -58,7 +58,10 @@
       "Bash(__NEW_LINE__ echo \"从用户角度测试 - 模拟用户直接运行脚本\")",
       "Bash(__NEW_LINE__ cd /c/code/s-hy2)",
       "Bash(__NEW_LINE__ bash -c 'source scripts/outbound-manager.sh && view_outbound_rules')",
-      "Bash(./debug_rules_issue.sh:*)"
+      "Bash(./debug_rules_issue.sh:*)",
+      "Bash(source:*)",
+      "Bash(view_outbound_rules)",
+      "Bash(check_rule_type_conflict:*)"
     ],
     "deny": []
   }
