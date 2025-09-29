@@ -42,21 +42,38 @@ fi
 # 当前日志级别 (默认为 INFO)
 LOG_LEVEL=${LOG_LEVEL:-$LOG_LEVEL_INFO}
 
-# 初始化日志系统
+# 初始化日志系统 - 智能降级版本
 init_logging() {
-    # 创建日志目录
-    if [[ ! -d "$LOG_DIR" ]]; then
-        mkdir -p "$LOG_DIR" || {
-            echo "警告: 无法创建日志目录 $LOG_DIR" >&2
-            return 1
-        }
+    # 尝试创建系统日志目录
+    if [[ $EUID -eq 0 ]] && [[ ! -d "$LOG_DIR" ]]; then
+        if mkdir -p "$LOG_DIR" 2>/dev/null; then
+            # 成功创建系统日志目录
+            :
+        else
+            # Root用户但无法创建系统目录，降级到/tmp
+            LOG_DIR="/tmp/s-hy2"
+            LOG_FILE="$LOG_DIR/s-hy2.log"
+            mkdir -p "$LOG_DIR" 2>/dev/null
+        fi
+    elif [[ $EUID -ne 0 ]]; then
+        # 非Root用户，使用用户目录
+        local user_log_dir="${HOME}/.cache/s-hy2"
+        if mkdir -p "$user_log_dir" 2>/dev/null; then
+            LOG_DIR="$user_log_dir"
+            LOG_FILE="$LOG_DIR/s-hy2.log"
+        else
+            # 降级到临时目录
+            LOG_DIR="/tmp/s-hy2-$(whoami)"
+            LOG_FILE="$LOG_DIR/s-hy2.log"
+            mkdir -p "$LOG_DIR" 2>/dev/null
+        fi
     fi
 
     # 设置日志文件权限
     if [[ -f "$LOG_FILE" ]]; then
-        chmod 644 "$LOG_FILE"
+        chmod 644 "$LOG_FILE" 2>/dev/null
     else
-        touch "$LOG_FILE" && chmod 644 "$LOG_FILE"
+        touch "$LOG_FILE" 2>/dev/null && chmod 644 "$LOG_FILE" 2>/dev/null
     fi
 }
 
@@ -448,6 +465,66 @@ export -f require_command require_file require_writable_dir require_root
 export -f wait_for_user show_progress
 export -f init_semaphore acquire_semaphore release_semaphore
 export -f check_internet_connection
+
+# ===== 用户友好提示函数 =====
+
+# 标准化的操作提示
+show_operation_result() {
+    local operation="$1"
+    local status="$2"  # success, error, warning, info
+    local message="$3"
+
+    case $status in
+        "success")
+            echo -e "${GREEN}✅ $operation 成功${NC}: $message"
+            ;;
+        "error")
+            echo -e "${RED}❌ $operation 失败${NC}: $message"
+            ;;
+        "warning")
+            echo -e "${YELLOW}⚠️  $operation 警告${NC}: $message"
+            ;;
+        "info")
+            echo -e "${BLUE}ℹ️  $operation 信息${NC}: $message"
+            ;;
+        *)
+            echo "$operation: $message"
+            ;;
+    esac
+}
+
+# 标准化的冲突提示
+show_conflict_prompt() {
+    local item_type="$1"
+    local existing_item="$2"
+    local new_item="$3"
+
+    echo ""
+    echo -e "${YELLOW}⚠️  冲突检测 ⚠️${NC}"
+    echo -e "${YELLOW}检测到现有的 ${item_type}: ${CYAN}$existing_item${NC}"
+    echo -e "${YELLOW}正在尝试添加: ${CYAN}$new_item${NC}"
+    echo ""
+    echo -e "${BLUE}选择操作：${NC}"
+    echo -e "${GREEN}1.${NC} 继续并覆盖现有项"
+    echo -e "${RED}2.${NC} 取消操作"
+    echo ""
+}
+
+# 标准化的确认提示
+show_confirmation_prompt() {
+    local action="$1"
+    local target="$2"
+
+    echo ""
+    echo -e "${YELLOW}⚠️  确认操作 ⚠️${NC}"
+    echo -e "${YELLOW}即将执行: ${CYAN}$action${NC}"
+    echo -e "${YELLOW}目标: ${CYAN}$target${NC}"
+    echo ""
+    read -p "确认执行此操作？ [y/N]: " confirm
+    [[ $confirm =~ ^[Yy]$ ]]
+}
+
+export -f show_operation_result show_conflict_prompt show_confirmation_prompt
 
 # 自动初始化
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then

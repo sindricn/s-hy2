@@ -599,7 +599,8 @@ delete_existing_outbound_from_config() {
     echo -e "${BLUE}[INFO]${NC} 从配置文件中删除规则: $rule_name"
 
     # 创建临时文件
-    local temp_config="/tmp/hysteria_delete_outbound_$$_$(date +%s).yaml"
+    local temp_config
+    temp_config=$(create_delete_temp_file)
 
     # 删除指定的outbound规则
     local in_outbound_rule=false
@@ -2032,17 +2033,14 @@ apply_rule_to_config_simple() {
             ;;
     esac
 
-    # 备份现有配置
-    if [[ -f "$HYSTERIA_CONFIG" ]]; then
-        cp "$HYSTERIA_CONFIG" "${HYSTERIA_CONFIG}.bak.$(date +%s)" 2>/dev/null
-        log_info "已备份配置文件"
-    fi
+    # 直接操作，不创建不必要的备份
 
     # 生成符合官方标准的outbound配置
-    local temp_config="/tmp/hysteria_apply_$$_$(date +%s).yaml"
+    local temp_config
+    temp_config=$(create_apply_temp_file)
 
     if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
-        # 在现有outbounds中添加新规则
+        # 在现有outbounds中添加新规则 - 修复逻辑错误
         awk -v rule="$rule_name" -v type="$rule_type" -v mode="$mode" -v device="$bindDevice" -v addr="$addr" -v url="$url" '
         /^[[:space:]]*outbounds:/ {
             print $0
@@ -2060,9 +2058,9 @@ apply_rule_to_config_simple() {
                 print "    http:"
                 if (url != "") print "      url: " url
             }
-            next
+            # 不使用next，继续处理后续行以保留其他现有规则
         }
-        { print }
+        !/^[[:space:]]*outbounds:/ { print }
         ' "$HYSTERIA_CONFIG" > "$temp_config"
     else
         # 创建新的outbounds节点
@@ -2118,15 +2116,7 @@ EOF
         fi
 
         log_info "状态已更新"
-
-        read -p "是否重启 Hysteria2 服务？ [y/N]: " restart_service
-        if [[ $restart_service =~ ^[Yy]$ ]]; then
-            if systemctl restart hysteria-server 2>/dev/null; then
-                log_success "服务已重启"
-            else
-                log_warn "服务重启失败，请手动重启"
-            fi
-        fi
+        log_info "规则应用完成，如需重启服务请手动执行：systemctl restart hysteria-server"
         return 0
     else
         log_error "配置应用失败"
@@ -2363,6 +2353,78 @@ delete_outbound_rule_new() {
     fi
 
     wait_for_user
+}
+
+# ===== 并发安全和临时文件管理函数 =====
+
+# 创建操作锁文件
+acquire_operation_lock() {
+    local operation="${1:-outbound}"
+    local lock_file="/tmp/s-hy2-${operation}-$(whoami).lock"
+    local max_wait=30
+    local wait_count=0
+
+    while [[ $wait_count -lt $max_wait ]]; do
+        if (set -C; echo $$ > "$lock_file") 2>/dev/null; then
+            # 成功获取锁
+            echo "$lock_file"
+            return 0
+        fi
+
+        # 检查锁文件是否过期（超过5分钟）
+        if [[ -f "$lock_file" ]]; then
+            local lock_age
+            lock_age=$(($(date +%s) - $(stat -c %Y "$lock_file" 2>/dev/null || echo 0)))
+            if [[ $lock_age -gt 300 ]]; then
+                # 清理过期锁文件
+                rm -f "$lock_file" 2>/dev/null
+                continue
+            fi
+        fi
+
+        sleep 1
+        ((wait_count++))
+    done
+
+    # 获取锁失败
+    return 1
+}
+
+# 释放操作锁
+release_operation_lock() {
+    local lock_file="$1"
+    [[ -n "$lock_file" && -f "$lock_file" ]] && rm -f "$lock_file"
+}
+
+# 创建标准化的Hysteria临时文件
+create_hysteria_temp_file() {
+    local prefix="${1:-hysteria}"
+    local extension="${2:-yaml}"
+
+    # 使用mktemp确保唯一性和安全性
+    local temp_file
+    temp_file=$(mktemp "/tmp/${prefix}-XXXXXX.${extension}")
+    chmod 600 "$temp_file"
+
+    # 添加到清理列表
+    TEMP_FILES="${TEMP_FILES:-} $temp_file"
+
+    echo "$temp_file"
+}
+
+# 创建配置文件专用临时文件
+create_config_temp_file() {
+    create_hysteria_temp_file "hysteria-config" "yaml"
+}
+
+# 创建删除操作专用临时文件
+create_delete_temp_file() {
+    create_hysteria_temp_file "hysteria-delete" "yaml"
+}
+
+# 创建应用操作专用临时文件
+create_apply_temp_file() {
+    create_hysteria_temp_file "hysteria-apply" "yaml"
 }
 
 # 如果脚本被直接执行
