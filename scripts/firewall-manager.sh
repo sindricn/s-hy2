@@ -163,11 +163,10 @@ show_firewall_menu() {
     echo -e "${BLUE}Hysteria2 端口: ${GREEN}$HYSTERIA_PORT${NC}"
     echo ""
     echo -e "${GREEN}1.${NC} 查看防火墙状态"
-    echo -e "${GREEN}2.${NC} 开放 Hysteria2 端口"
-    echo -e "${GREEN}3.${NC} 检查端口连通性"
-    echo -e "${GREEN}4.${NC} 管理防火墙规则"
+    echo -e "${GREEN}2.${NC} 一键管理 Hysteria2 端口"
+    echo -e "${GREEN}3.${NC} 手动开放端口"
+    echo -e "${GREEN}4.${NC} 防火墙规则管理"
     echo -e "${GREEN}5.${NC} 防火墙服务管理"
-    echo -e "${GREEN}6.${NC} 端口扫描和诊断"
     echo -e "${RED}0.${NC} 返回主菜单"
     echo ""
 }
@@ -539,81 +538,6 @@ verify_port_opened() {
     esac
 }
 
-# 检查端口连通性
-check_port_connectivity() {
-    log_info "检查端口连通性"
-
-    echo -e "${BLUE}=== 端口连通性检查 ===${NC}"
-    echo ""
-
-    # 内部检查：端口监听状态
-    echo -e "${GREEN}1. 内部端口监听检查:${NC}"
-    if ss -tulpn | grep ":$HYSTERIA_PORT "; then
-        log_success "端口 $HYSTERIA_PORT 正在监听"
-    else
-        log_error "端口 $HYSTERIA_PORT 未在监听"
-        echo "可能原因："
-        echo "- Hysteria2 服务未运行"
-        echo "- 配置文件中端口设置错误"
-        echo "- 服务启动失败"
-        echo ""
-    fi
-
-    # 防火墙规则检查
-    echo -e "${GREEN}2. 防火墙规则检查:${NC}"
-    case $DETECTED_FIREWALL in
-        $FW_FIREWALLD)
-            if firewall-cmd --query-port="$HYSTERIA_PORT/tcp" >/dev/null 2>&1; then
-                echo "✅ TCP 端口规则存在"
-            else
-                echo "❌ TCP 端口规则不存在"
-            fi
-
-            if firewall-cmd --query-port="$HYSTERIA_PORT/udp" >/dev/null 2>&1; then
-                echo "✅ UDP 端口规则存在"
-            else
-                echo "❌ UDP 端口规则不存在"
-            fi
-            ;;
-        $FW_UFW)
-            if ufw status | grep "$HYSTERIA_PORT" >/dev/null; then
-                echo "✅ 端口规则存在"
-            else
-                echo "❌ 端口规则不存在"
-            fi
-            ;;
-        *)
-            echo "⚠️  请手动检查防火墙规则"
-            ;;
-    esac
-    echo ""
-
-    # 外部连通性测试
-    echo -e "${GREEN}3. 外部连通性测试:${NC}"
-    echo "将尝试从外部测试端口连通性..."
-
-    # 获取服务器外部 IP
-    local external_ip
-    external_ip=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || echo "未知")
-
-    if [[ "$external_ip" != "未知" ]]; then
-        echo "服务器外部 IP: $external_ip"
-        echo "您可以使用以下命令从其他机器测试连通性："
-        echo "telnet $external_ip $HYSTERIA_PORT"
-        echo "nc -zv $external_ip $HYSTERIA_PORT"
-        echo ""
-    fi
-
-    # 云服务商安全组提醒
-    echo -e "${YELLOW}注意事项:${NC}"
-    echo "- 如果使用云服务器，请检查安全组/防火墙设置"
-    echo "- 确保云平台防火墙允许端口 $HYSTERIA_PORT"
-    echo "- 某些云服务商默认阻止所有入站连接"
-    echo ""
-
-    wait_for_user
-}
-
 # 管理防火墙规则
 manage_firewall_rules() {
     echo -e "${BLUE}=== 防火墙规则管理 ===${NC}"
@@ -765,41 +689,154 @@ manage_firewall_service() {
     wait_for_user
 }
 
-# 端口扫描和诊断
-port_scan_diagnostic() {
-    echo -e "${BLUE}=== 端口扫描和诊断 ===${NC}"
+# 智能管理 Hysteria2 端口
+smart_manage_hysteria_port() {
+    log_info "智能管理 Hysteria2 端口"
+
+    echo -e "${CYAN}=== 一键管理 Hysteria2 端口 ===${NC}"
     echo ""
 
-    # 本地端口扫描
-    echo -e "${GREEN}1. 本地端口状态:${NC}"
-    ss -tulpn | grep -E "(LISTEN|:$HYSTERIA_PORT)" | head -10
+    # 首先检查防火墙服务状态
+    local firewall_enabled=false
+    local firewall_running=false
+
+    case $DETECTED_FIREWALL in
+        $FW_FIREWALLD)
+            if systemctl is-enabled firewalld >/dev/null 2>&1; then
+                firewall_enabled=true
+            fi
+            if systemctl is-active firewalld >/dev/null 2>&1; then
+                firewall_running=true
+            fi
+            ;;
+        $FW_UFW)
+            if ufw status | grep -q "Status: active"; then
+                firewall_enabled=true
+                firewall_running=true
+            fi
+            ;;
+        $FW_IPTABLES)
+            # iptables 总是"运行"的，检查是否有规则
+            if iptables -L INPUT | grep -q "DROP\|REJECT"; then
+                firewall_enabled=true
+                firewall_running=true
+            fi
+            ;;
+        $FW_NFTABLES)
+            if systemctl is-active nftables >/dev/null 2>&1; then
+                firewall_enabled=true
+                firewall_running=true
+            fi
+            ;;
+    esac
+
+    echo -e "${BLUE}防火墙状态检测：${NC}"
+    echo "防火墙类型: $FIREWALL_NAME"
+    echo "防火墙服务: $([ "$firewall_running" = true ] && echo "${GREEN}运行中${NC}" || echo "${RED}未运行${NC}")"
+    echo "Hysteria2 端口: $HYSTERIA_PORT"
     echo ""
 
-    # 进程检查
-    echo -e "${GREEN}2. Hysteria2 进程状态:${NC}"
-    if pgrep -f hysteria >/dev/null; then
-        ps aux | grep -E "(hysteria|hy2)" | grep -v grep
-        log_success "Hysteria2 进程运行中"
+    # 如果防火墙未启用
+    if [ "$firewall_enabled" = false ] || [ "$firewall_running" = false ]; then
+        echo -e "${YELLOW}⚠️  防火墙未启用或未运行${NC}"
+        echo -e "${BLUE}当前状态：${NC}端口 $HYSTERIA_PORT 可能已可访问（无防火墙限制）"
+        echo ""
+        echo -e "${GREEN}安全建议：${NC}"
+        echo "虽然不影响 Hysteria2 连接，但为了安全考虑，建议启用防火墙并开放特定端口"
+        echo ""
+        read -p "是否启用防火墙并配置规则？ [y/N]: " enable_fw
+
+        if [[ $enable_fw =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}正在启用防火墙并配置规则...${NC}"
+
+            # 启用防火墙服务
+            case $DETECTED_FIREWALL in
+                $FW_FIREWALLD)
+                    systemctl enable --now firewalld
+                    ;;
+                $FW_UFW)
+                    ufw --force enable
+                    ;;
+                $FW_IPTABLES)
+                    echo "iptables 无需启用服务，直接配置规则"
+                    ;;
+                $FW_NFTABLES)
+                    systemctl enable --now nftables
+                    ;;
+            esac
+
+            # 开放端口
+            open_hysteria_port
+        else
+            echo -e "${BLUE}保持当前状态，跳过防火墙配置${NC}"
+        fi
     else
-        log_warn "未找到 Hysteria2 进程"
+        # 防火墙已启用，检查端口状态
+        echo -e "${GREEN}✅ 防火墙已启用${NC}"
+        echo ""
+
+        local port_opened=false
+        local port_status=""
+
+        # 检查端口是否已开放
+        case $DETECTED_FIREWALL in
+            $FW_FIREWALLD)
+                if firewall-cmd --query-port="$HYSTERIA_PORT/tcp" >/dev/null 2>&1 && \
+                   firewall-cmd --query-port="$HYSTERIA_PORT/udp" >/dev/null 2>&1; then
+                    port_opened=true
+                    port_status="TCP/UDP 端口已开放"
+                else
+                    port_status="端口未开放或部分开放"
+                fi
+                ;;
+            $FW_UFW)
+                if ufw status | grep "$HYSTERIA_PORT" >/dev/null; then
+                    port_opened=true
+                    port_status="端口规则已存在"
+                else
+                    port_status="端口未开放"
+                fi
+                ;;
+            $FW_IPTABLES)
+                if iptables -L INPUT | grep "$HYSTERIA_PORT" >/dev/null; then
+                    port_opened=true
+                    port_status="端口规则已存在"
+                else
+                    port_status="端口未开放"
+                fi
+                ;;
+            $FW_NFTABLES)
+                if nft list table inet filter 2>/dev/null | grep "$HYSTERIA_PORT" >/dev/null; then
+                    port_opened=true
+                    port_status="端口规则已存在"
+                else
+                    port_status="端口未开放"
+                fi
+                ;;
+        esac
+
+        echo -e "${BLUE}端口状态检测：${NC}$port_status"
+        echo ""
+
+        if [ "$port_opened" = true ]; then
+            echo -e "${GREEN}✅ 端口 $HYSTERIA_PORT 已正确配置${NC}"
+            echo -e "${BLUE}Hysteria2 连接应该正常工作${NC}"
+        else
+            echo -e "${RED}❌ 端口 $HYSTERIA_PORT 未开放${NC}"
+            echo -e "${YELLOW}⚠️  这将影响 Hysteria2 客户端连接${NC}"
+            echo ""
+            read -p "是否立即开放端口 $HYSTERIA_PORT？ [Y/n]: " open_port
+
+            if [[ ! $open_port =~ ^[Nn]$ ]]; then
+                echo -e "${GREEN}正在开放端口 $HYSTERIA_PORT...${NC}"
+                open_hysteria_port
+            else
+                echo -e "${RED}⚠️  端口未开放，Hysteria2 客户端可能无法连接${NC}"
+            fi
+        fi
     fi
-    echo ""
 
-    # 系统资源检查
-    echo -e "${GREEN}3. 系统资源状态:${NC}"
-    echo "CPU 使用率:"
-    top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1"%"}'
-    echo "内存使用率:"
-    free -h | awk 'NR==2{printf "%.1f%%\n", $3*100/$2}'
-    echo "磁盘使用率:"
-    df -h / | awk 'NR==2{print $5}'
     echo ""
-
-    # 网络连接检查
-    echo -e "${GREEN}4. 网络连接状态:${NC}"
-    netstat -i | head -5 2>/dev/null || ip link show | head -5
-    echo ""
-
     wait_for_user
 }
 
@@ -913,15 +950,14 @@ manage_firewall() {
         show_firewall_menu
 
         local choice
-        read -p "请选择操作 [0-6]: " choice
+        read -p "请选择操作 [0-5]: " choice
 
         case $choice in
             1) show_firewall_status ;;
-            2) open_hysteria_port ;;
-            3) check_port_connectivity ;;
+            2) smart_manage_hysteria_port ;;
+            3) open_hysteria_port ;;
             4) manage_firewall_rules ;;
             5) manage_firewall_service ;;
-            6) port_scan_diagnostic ;;
             0)
                 log_info "返回主菜单"
                 break
