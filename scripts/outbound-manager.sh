@@ -1673,7 +1673,175 @@ view_outbound_rules() {
     fi
 
     echo ""
+
+    # 询问是否查看单个规则详细参数
+    echo -e "${BLUE}是否查看特定规则的详细参数？${NC}"
+    echo -e "${GREEN}1.${NC} 是，选择规则查看详细参数"
+    echo -e "${YELLOW}2.${NC} 否，返回上级菜单"
+    echo ""
+    read -p "请选择 [1-2]: " detail_choice
+
+    case $detail_choice in
+        1)
+            view_single_rule_details
+            ;;
+        2)
+            ;;
+        *)
+            echo ""
+            echo -e "${YELLOW}无效选择，返回上级菜单${NC}"
+            ;;
+    esac
+
     wait_for_user
+}
+
+# 查看单个规则详细参数
+view_single_rule_details() {
+    echo ""
+    echo -e "${BLUE}=== 查看规则详细参数 ===${NC}"
+    echo ""
+
+    # 列出规则库中的规则
+    local rules=()
+    local rule_count=0
+
+    echo -e "${CYAN}📚 规则库中的规则：${NC}"
+    while IFS= read -r rule_name; do
+        if [[ -n "$rule_name" ]]; then
+            rules+=("$rule_name")
+            ((rule_count++))
+            # 检查是否已应用
+            local status="❌ 未应用"
+            if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+                status="✅ 已应用"
+            fi
+            echo "  $rule_count. $rule_name $status"
+        fi
+    done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
+
+    if [[ ${#rules[@]} -eq 0 ]]; then
+        echo "  (无规则)"
+        echo ""
+        return
+    fi
+
+    echo ""
+    read -p "请选择要查看的规则 [1-$rule_count]: " choice
+
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt $rule_count ]]; then
+        echo -e "${RED}无效选择${NC}"
+        return 1
+    fi
+
+    local selected_rule="${rules[$((choice-1))]}"
+
+    echo ""
+    echo -e "${BLUE}=== 规则详细信息: ${CYAN}$selected_rule${NC} ===${NC}"
+    echo ""
+
+    # 获取规则基本信息
+    echo -e "${GREEN}📋 基本信息：${NC}"
+    local rule_type=$(awk -v rule="$selected_rule" '
+    BEGIN { in_rule = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*type:[[:space:]]*/ {
+        gsub(/^[[:space:]]*type:[[:space:]]*/, "");
+        gsub(/[[:space:]]*$/, "");
+        print $0;
+        exit
+    }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+    ' "$RULES_LIBRARY")
+
+    local rule_desc=$(awk -v rule="$selected_rule" '
+    BEGIN { in_rule = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*description:[[:space:]]*/ {
+        gsub(/^[[:space:]]*description:[[:space:]]*"?/, "");
+        gsub(/"?[[:space:]]*$/, "");
+        print $0;
+        exit
+    }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+    ' "$RULES_LIBRARY")
+
+    echo "  规则名称: $selected_rule"
+    echo "  规则类型: ${rule_type:-"未知"}"
+    echo "  规则描述: ${rule_desc:-"无描述"}"
+
+    # 检查应用状态
+    local applied_status="❌ 未应用"
+    if grep -q "- $selected_rule" "$RULES_STATE" 2>/dev/null; then
+        applied_status="✅ 已应用"
+    fi
+    echo "  应用状态: $applied_status"
+
+    echo ""
+
+    # 显示配置参数
+    echo -e "${GREEN}⚙️  配置参数：${NC}"
+    case "$rule_type" in
+        "direct")
+            show_direct_parameters "$selected_rule"
+            ;;
+        "socks5")
+            show_socks5_parameters "$selected_rule"
+            ;;
+        "http")
+            show_http_parameters "$selected_rule"
+            ;;
+        *)
+            echo "  不支持的规则类型: $rule_type"
+            ;;
+    esac
+
+    echo ""
+}
+
+# 显示direct类型参数
+show_direct_parameters() {
+    local rule_name="$1"
+    echo "  类型: Direct (直连)"
+
+    local mode=$(get_rule_config_value "$rule_name" "mode")
+    local bindIPv4=$(get_rule_config_value "$rule_name" "bindIPv4")
+    local bindIPv6=$(get_rule_config_value "$rule_name" "bindIPv6")
+    local bindDevice=$(get_rule_config_value "$rule_name" "bindDevice")
+    local fastOpen=$(get_rule_config_value "$rule_name" "fastOpen")
+
+    echo "  连接模式 (mode): ${mode:-"auto (默认)"}"
+    echo "  绑定IPv4 (bindIPv4): ${bindIPv4:-"未设置"}"
+    echo "  绑定IPv6 (bindIPv6): ${bindIPv6:-"未设置"}"
+    echo "  绑定设备 (bindDevice): ${bindDevice:-"未设置"}"
+    echo "  快速打开 (fastOpen): ${fastOpen:-"false (默认)"}"
+}
+
+# 显示socks5类型参数
+show_socks5_parameters() {
+    local rule_name="$1"
+    echo "  类型: SOCKS5 代理"
+
+    local addr=$(get_rule_config_value "$rule_name" "addr")
+    local username=$(get_rule_config_value "$rule_name" "username")
+    local password=$(get_rule_config_value "$rule_name" "password")
+
+    echo "  代理地址 (addr): ${addr:-"未设置"}"
+    echo "  用户名 (username): ${username:-"未设置"}"
+    echo "  密码 (password): ${password:+"***已设置***"}"
+    [[ -z "$password" ]] && echo "  密码 (password): 未设置"
+}
+
+# 显示http类型参数
+show_http_parameters() {
+    local rule_name="$1"
+    echo "  类型: HTTP/HTTPS 代理"
+
+    local url=$(get_rule_config_value "$rule_name" "url")
+    local insecure=$(get_rule_config_value "$rule_name" "insecure")
+
+    echo "  代理URL (url): ${url:-"未设置"}"
+    echo "  忽略TLS验证 (insecure): ${insecure:-"false (默认)"}"
 }
 
 # 2. 新增出站规则
@@ -1942,10 +2110,13 @@ apply_rule_to_config_simple() {
     log_info "检测到规则类型: $rule_type"
     log_debug "开始检查配置文件中的同类型规则: $HYSTERIA_CONFIG"
 
-    # 先提取配置参数（在使用前定义变量）
-    local mode="" bindDevice="" addr="" url=""
+    # 先提取配置参数（在使用前定义变量）- 完整参数支持
+    local mode="" bindDevice="" bindIPv4="" bindIPv6="" fastOpen=""
+    local addr="" username="" password="" url="" insecure=""
+
     case "$rule_type" in
         "direct")
+            # 提取direct类型的所有参数
             mode=$(awk -v rule="$rule_name" '
             BEGIN { in_rule = 0; in_config = 0 }
             $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
@@ -1953,8 +2124,7 @@ apply_rule_to_config_simple() {
             in_rule && in_config && /^[[:space:]]*mode:[[:space:]]*/ {
                 gsub(/^[[:space:]]*mode:[[:space:]]*/, "");
                 gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
+                print $0; exit
             }
             in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
             ' "$RULES_LIBRARY")
@@ -1966,13 +2136,50 @@ apply_rule_to_config_simple() {
             in_rule && in_config && /^[[:space:]]*bindDevice:[[:space:]]*/ {
                 gsub(/^[[:space:]]*bindDevice:[[:space:]]*/, "");
                 gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
+                print $0; exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            bindIPv4=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*bindIPv4:[[:space:]]*/ {
+                gsub(/^[[:space:]]*bindIPv4:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0; exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            bindIPv6=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*bindIPv6:[[:space:]]*/ {
+                gsub(/^[[:space:]]*bindIPv6:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0; exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            fastOpen=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*fastOpen:[[:space:]]*/ {
+                gsub(/^[[:space:]]*fastOpen:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0; exit
             }
             in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
             ' "$RULES_LIBRARY")
             ;;
+
         "socks5")
+            # 提取socks5类型的所有参数
             addr=$(awk -v rule="$rule_name" '
             BEGIN { in_rule = 0; in_config = 0 }
             $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
@@ -1980,13 +2187,38 @@ apply_rule_to_config_simple() {
             in_rule && in_config && /^[[:space:]]*addr:[[:space:]]*/ {
                 gsub(/^[[:space:]]*addr:[[:space:]]*/, "");
                 gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
+                print $0; exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            username=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*username:[[:space:]]*/ {
+                gsub(/^[[:space:]]*username:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0; exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            password=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*password:[[:space:]]*/ {
+                gsub(/^[[:space:]]*password:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0; exit
             }
             in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
             ' "$RULES_LIBRARY")
             ;;
+
         "http")
+            # 提取http类型的所有参数
             url=$(awk -v rule="$rule_name" '
             BEGIN { in_rule = 0; in_config = 0 }
             $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
@@ -1994,8 +2226,19 @@ apply_rule_to_config_simple() {
             in_rule && in_config && /^[[:space:]]*url:[[:space:]]*/ {
                 gsub(/^[[:space:]]*url:[[:space:]]*/, "");
                 gsub(/[[:space:]]*$/, "");
-                print $0;
-                exit
+                print $0; exit
+            }
+            in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+            ' "$RULES_LIBRARY")
+
+            insecure=$(awk -v rule="$rule_name" '
+            BEGIN { in_rule = 0; in_config = 0 }
+            $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+            in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+            in_rule && in_config && /^[[:space:]]*insecure:[[:space:]]*/ {
+                gsub(/^[[:space:]]*insecure:[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print $0; exit
             }
             in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
             ' "$RULES_LIBRARY")
@@ -2049,22 +2292,32 @@ apply_rule_to_config_simple() {
 
     if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
         # 在现有outbounds中添加新规则 - 修复逻辑错误
-        awk -v rule="$rule_name" -v type="$rule_type" -v mode="$mode" -v device="$bindDevice" -v addr="$addr" -v url="$url" '
+        awk -v rule="$rule_name" -v type="$rule_type" \
+            -v mode="$mode" -v device="$bindDevice" -v ipv4="$bindIPv4" -v ipv6="$bindIPv6" -v fastopen="$fastOpen" \
+            -v addr="$addr" -v user="$username" -v pass="$password" \
+            -v url="$url" -v insecure="$insecure" '
         /^[[:space:]]*outbounds:/ {
             print $0
-            # 根据官方格式添加outbound
+            # 根据官方格式添加完整的outbound配置
             print "  - name: " rule
             print "    type: " type
+
             if (type == "direct") {
                 print "    direct:"
                 if (mode != "") print "      mode: " mode
+                if (ipv4 != "") print "      bindIPv4: " ipv4
+                if (ipv6 != "") print "      bindIPv6: " ipv6
                 if (device != "") print "      bindDevice: " device
+                if (fastopen != "") print "      fastOpen: " fastopen
             } else if (type == "socks5") {
                 print "    socks5:"
                 if (addr != "") print "      addr: " addr
+                if (user != "") print "      username: " user
+                if (pass != "") print "      password: " pass
             } else if (type == "http") {
                 print "    http:"
                 if (url != "") print "      url: " url
+                if (insecure != "") print "      insecure: " insecure
             }
             # 不使用next，继续处理后续行以保留其他现有规则
         }
@@ -2087,20 +2340,26 @@ outbounds:
     type: $rule_type
 EOF
 
-        # 根据规则类型添加具体配置
+        # 根据规则类型添加完整的具体配置
         case "$rule_type" in
             "direct")
                 echo "    direct:" >> "$temp_config"
                 [[ -n "$mode" ]] && echo "      mode: $mode" >> "$temp_config"
+                [[ -n "$bindIPv4" ]] && echo "      bindIPv4: $bindIPv4" >> "$temp_config"
+                [[ -n "$bindIPv6" ]] && echo "      bindIPv6: $bindIPv6" >> "$temp_config"
                 [[ -n "$bindDevice" ]] && echo "      bindDevice: $bindDevice" >> "$temp_config"
+                [[ -n "$fastOpen" ]] && echo "      fastOpen: $fastOpen" >> "$temp_config"
                 ;;
             "socks5")
                 echo "    socks5:" >> "$temp_config"
                 [[ -n "$addr" ]] && echo "      addr: $addr" >> "$temp_config"
+                [[ -n "$username" ]] && echo "      username: $username" >> "$temp_config"
+                [[ -n "$password" ]] && echo "      password: $password" >> "$temp_config"
                 ;;
             "http")
                 echo "    http:" >> "$temp_config"
                 [[ -n "$url" ]] && echo "      url: $url" >> "$temp_config"
+                [[ -n "$insecure" ]] && echo "      insecure: $insecure" >> "$temp_config"
                 ;;
         esac
     fi
@@ -2124,7 +2383,50 @@ EOF
         fi
 
         log_info "状态已更新"
-        log_info "规则应用完成，如需重启服务请手动执行：systemctl restart hysteria-server"
+        log_success "规则应用完成！"
+
+        # 交互式重启确认
+        echo ""
+        echo -e "${YELLOW}⚠️  配置已更新，需要重启服务生效 ⚠️${NC}"
+        echo -e "${BLUE}是否立即重启 Hysteria2 服务？${NC}"
+        echo ""
+        echo -e "${GREEN}1.${NC} 是，立即重启服务（推荐）"
+        echo -e "${YELLOW}2.${NC} 否，稍后手动重启"
+        echo ""
+        read -p "请选择 [1-2]: " restart_choice
+
+        case $restart_choice in
+            1)
+                echo ""
+                echo -e "${BLUE}[INFO]${NC} 正在重启 Hysteria2 服务..."
+                if systemctl restart hysteria-server 2>/dev/null; then
+                    echo -e "${GREEN}✅ 服务重启成功，新配置已生效${NC}"
+                    # 等待服务启动
+                    sleep 2
+                    if systemctl is-active hysteria-server >/dev/null 2>&1; then
+                        echo -e "${GREEN}✅ 服务运行状态正常${NC}"
+                    else
+                        echo -e "${RED}⚠️  服务重启后状态异常，请检查配置${NC}"
+                        echo -e "${YELLOW}建议执行: journalctl -u hysteria-server -f${NC}"
+                    fi
+                else
+                    echo -e "${RED}❌ 服务重启失败${NC}"
+                    echo -e "${YELLOW}请手动重启: systemctl restart hysteria-server${NC}"
+                fi
+                ;;
+            2)
+                echo ""
+                echo -e "${BLUE}[INFO]${NC} 已跳过自动重启"
+                echo -e "${YELLOW}请稍后手动重启服务生效新配置:${NC}"
+                echo -e "${CYAN}  systemctl restart hysteria-server${NC}"
+                ;;
+            *)
+                echo ""
+                echo -e "${YELLOW}无效选择，已跳过自动重启${NC}"
+                echo -e "${YELLOW}请手动重启服务: systemctl restart hysteria-server${NC}"
+                ;;
+        esac
+
         return 0
     else
         log_error "配置应用失败"
@@ -2213,8 +2515,8 @@ modify_outbound_rule() {
             fi
             ;;
         2)
-            echo -e "${YELLOW}配置参数修改功能开发中...${NC}"
-            echo "请使用删除规则后重新创建的方式进行修改"
+            # 修改配置参数
+            modify_rule_parameters "$selected_rule"
             ;;
         *)
             log_error "无效选择"
@@ -2222,6 +2524,257 @@ modify_outbound_rule() {
     esac
 
     wait_for_user
+}
+
+# 修改规则配置参数
+modify_rule_parameters() {
+    local rule_name="$1"
+
+    echo ""
+    echo -e "${BLUE}=== 修改规则配置参数: ${CYAN}$rule_name${NC} ===${NC}"
+
+    # 获取规则类型
+    local rule_type=$(awk -v rule="$rule_name" '
+    BEGIN { in_rule = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*type:[[:space:]]*/ {
+        gsub(/^[[:space:]]*type:[[:space:]]*/, "");
+        gsub(/[[:space:]]*$/, "");
+        print $0;
+        exit
+    }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ { in_rule = 0 }
+    ' "$RULES_LIBRARY")
+
+    if [[ -z "$rule_type" ]]; then
+        log_error "无法获取规则类型"
+        return 1
+    fi
+
+    echo -e "${BLUE}规则类型: ${CYAN}$rule_type${NC}"
+    echo ""
+
+    case "$rule_type" in
+        "direct")
+            modify_direct_parameters "$rule_name"
+            ;;
+        "socks5")
+            modify_socks5_parameters "$rule_name"
+            ;;
+        "http")
+            modify_http_parameters "$rule_name"
+            ;;
+        *)
+            log_error "不支持的规则类型: $rule_type"
+            return 1
+            ;;
+    esac
+}
+
+# 修改direct类型参数
+modify_direct_parameters() {
+    local rule_name="$1"
+
+    echo "Direct 类型参数修改："
+    echo "1. mode (auto|64|46|6|4)"
+    echo "2. bindIPv4"
+    echo "3. bindIPv6"
+    echo "4. bindDevice"
+    echo "5. fastOpen (true|false)"
+    echo ""
+
+    read -p "请选择要修改的参数 [1-5]: " param_choice
+
+    local param_name param_value current_value
+
+    case $param_choice in
+        1)
+            param_name="mode"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            echo "可选值: auto, 64, 46, 6, 4"
+            read -p "请输入新的mode值: " param_value
+            ;;
+        2)
+            param_name="bindIPv4"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的bindIPv4值: " param_value
+            ;;
+        3)
+            param_name="bindIPv6"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的bindIPv6值: " param_value
+            ;;
+        4)
+            param_name="bindDevice"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的bindDevice值: " param_value
+            ;;
+        5)
+            param_name="fastOpen"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            echo "可选值: true, false"
+            read -p "请输入新的fastOpen值: " param_value
+            ;;
+        *)
+            log_error "无效选择"
+            return 1
+            ;;
+    esac
+
+    if [[ -n "$param_value" ]]; then
+        update_rule_config_value "$rule_name" "$param_name" "$param_value"
+    fi
+}
+
+# 修改socks5类型参数
+modify_socks5_parameters() {
+    local rule_name="$1"
+
+    echo "SOCKS5 类型参数修改："
+    echo "1. addr"
+    echo "2. username"
+    echo "3. password"
+    echo ""
+
+    read -p "请选择要修改的参数 [1-3]: " param_choice
+
+    local param_name param_value current_value
+
+    case $param_choice in
+        1)
+            param_name="addr"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的地址 (host:port): " param_value
+            ;;
+        2)
+            param_name="username"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的用户名: " param_value
+            ;;
+        3)
+            param_name="password"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的密码: " param_value
+            ;;
+        *)
+            log_error "无效选择"
+            return 1
+            ;;
+    esac
+
+    if [[ -n "$param_value" ]]; then
+        update_rule_config_value "$rule_name" "$param_name" "$param_value"
+    fi
+}
+
+# 修改http类型参数
+modify_http_parameters() {
+    local rule_name="$1"
+
+    echo "HTTP 类型参数修改："
+    echo "1. url"
+    echo "2. insecure (true|false)"
+    echo ""
+
+    read -p "请选择要修改的参数 [1-2]: " param_choice
+
+    local param_name param_value current_value
+
+    case $param_choice in
+        1)
+            param_name="url"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            read -p "请输入新的URL: " param_value
+            ;;
+        2)
+            param_name="insecure"
+            current_value=$(get_rule_config_value "$rule_name" "$param_name")
+            echo "当前值: ${current_value:-"未设置"}"
+            echo "可选值: true, false"
+            read -p "请输入新的insecure值: " param_value
+            ;;
+        *)
+            log_error "无效选择"
+            return 1
+            ;;
+    esac
+
+    if [[ -n "$param_value" ]]; then
+        update_rule_config_value "$rule_name" "$param_name" "$param_value"
+    fi
+}
+
+# 获取规则配置值
+get_rule_config_value() {
+    local rule_name="$1"
+    local param_name="$2"
+
+    awk -v rule="$rule_name" -v param="$param_name" '
+    BEGIN { in_rule = 0; in_config = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; next }
+    in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; next }
+    in_rule && in_config && $0 ~ "^[[:space:]]*" param ":[[:space:]]*" {
+        gsub(/^[[:space:]]*[^:]*:[[:space:]]*/, "");
+        gsub(/[[:space:]]*$/, "");
+        print $0;
+        exit
+    }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ { in_rule = 0 }
+    ' "$RULES_LIBRARY"
+}
+
+# 更新规则配置值
+update_rule_config_value() {
+    local rule_name="$1"
+    local param_name="$2"
+    local param_value="$3"
+
+    # 使用临时文件安全更新
+    local temp_file=$(create_temp_file)
+
+    awk -v rule="$rule_name" -v param="$param_name" -v value="$param_value" '
+    BEGIN { in_rule = 0; in_config = 0; updated = 0 }
+    $0 ~ "^[[:space:]]*" rule ":[[:space:]]*$" { in_rule = 1; print; next }
+    in_rule && /^[[:space:]]*config:[[:space:]]*$/ { in_config = 1; print; next }
+    in_rule && in_config && $0 ~ "^[[:space:]]*" param ":[[:space:]]*" {
+        gsub(/^[[:space:]]*/, "")
+        indent = substr($0, 1, match($0, /[^ ]/) - 1)
+        print indent param ": " value
+        updated = 1
+        next
+    }
+    in_rule && in_config && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*/ && !updated {
+        # 在config段末尾插入新参数
+        gsub(/^[[:space:]]*/, "")
+        indent = substr($0, 1, match($0, /[^ ]/) - 1)
+        print indent param ": " value
+        print
+        updated = 1
+        next
+    }
+    in_rule && /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && !/^[[:space:]]*config:/ {
+        in_rule = 0; in_config = 0
+    }
+    { print }
+    ' "$RULES_LIBRARY" > "$temp_file"
+
+    if [[ -s "$temp_file" ]]; then
+        mv "$temp_file" "$RULES_LIBRARY"
+        log_success "参数 $param_name 已更新为: $param_value"
+    else
+        log_error "参数更新失败"
+        rm -f "$temp_file"
+        return 1
+    fi
 }
 
 # 5. 删除出站规则
