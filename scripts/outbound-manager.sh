@@ -1756,12 +1756,10 @@ view_outbound_rules() {
         while IFS= read -r rule_name; do
             if [[ -n "$rule_name" ]]; then
                 ((lib_count++))
-                # 检查是否已应用 - 精确匹配规则名称
+                # 检查是否已应用 - 只根据配置文件实际状态
                 local status="❌ 未应用"
-                # 首先检查配置文件中是否存在此规则
+                # 只检查配置文件中是否存在此规则
                 if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
-                    status="✅ 已应用"
-                elif grep -q "^[[:space:]]*-[[:space:]]*${rule_name}[[:space:]]*$" "$RULES_STATE" 2>/dev/null; then
                     status="✅ 已应用"
                 fi
                 echo "  $lib_count. $rule_name $status"
@@ -2264,9 +2262,42 @@ apply_rule_to_config_simple() {
 
     log_debug "提取的配置参数: mode=$mode, bindDevice=$bindDevice, addr=$addr, url=$url"
 
-    # 允许同类型多个规则，直接应用
-    echo -e "${GREEN}准备应用 $rule_type 类型规则: $rule_name${NC}"
+    # 检查配置文件中是否存在同类型规则
+    local existing_rule=""
+    if existing_rule=$(check_existing_outbound_type "$rule_type"); then
+        echo ""
+        echo -e "${YELLOW}⚠️  类型冲突检测 ⚠️${NC}"
+        echo -e "${YELLOW}检测到配置文件中已存在 ${rule_type} 类型规则: ${CYAN}$existing_rule${NC}"
+        echo -e "${YELLOW}同类型只能有一个规则在配置文件中生效${NC}"
+        echo ""
+        echo -e "${BLUE}选择操作：${NC}"
+        echo -e "${GREEN}1.${NC} 继续应用并覆盖现有规则 ${CYAN}$existing_rule${NC}"
+        echo -e "${RED}2.${NC} 取消应用操作"
+        echo ""
+        read -p "请选择 [1-2]: " conflict_choice
 
+        case $conflict_choice in
+            1)
+                echo -e "${BLUE}[INFO]${NC} 将覆盖现有的 $rule_type 规则: $existing_rule"
+                echo -e "${BLUE}[INFO]${NC} 继续应用新规则..."
+                echo ""
+                # 先删除现有的同类型规则
+                if ! delete_existing_outbound_from_config "$existing_rule"; then
+                    log_warn "删除现有规则失败，将尝试直接覆盖"
+                fi
+                ;;
+            2)
+                echo -e "${BLUE}[INFO]${NC} 已取消应用操作"
+                return 0
+                ;;
+            *)
+                log_error "无效选择"
+                return 1
+                ;;
+        esac
+    fi
+
+    echo -e "${GREEN}准备应用 $rule_type 类型规则: $rule_name${NC}"
 
     # 直接操作，不创建不必要的备份
 
@@ -2630,6 +2661,9 @@ modify_direct_parameters() {
 
     if [[ -n "$param_value" ]]; then
         update_rule_config_value "$rule_name" "$param_name" "$param_value"
+
+        # 检查是否需要同步到配置文件
+        prompt_config_sync "$rule_name"
     fi
 }
 
@@ -2674,6 +2708,9 @@ modify_socks5_parameters() {
 
     if [[ -n "$param_value" ]]; then
         update_rule_config_value "$rule_name" "$param_name" "$param_value"
+
+        # 检查是否需要同步到配置文件
+        prompt_config_sync "$rule_name"
     fi
 }
 
@@ -2712,6 +2749,9 @@ modify_http_parameters() {
 
     if [[ -n "$param_value" ]]; then
         update_rule_config_value "$rule_name" "$param_name" "$param_value"
+
+        # 检查是否需要同步到配置文件
+        prompt_config_sync "$rule_name"
     fi
 }
 
@@ -2796,9 +2836,9 @@ delete_outbound_rule_new() {
             rules+=("$rule_name")
             ((rule_count++))
 
-            # 检查是否已应用
+            # 检查是否已应用 - 只根据配置文件实际状态
             local status="❌ 未应用"
-            if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+            if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
                 status="✅ 已应用"
             fi
             echo "$rule_count. $rule_name $status"
@@ -2998,6 +3038,37 @@ create_delete_temp_file() {
 # 创建应用操作专用临时文件
 create_apply_temp_file() {
     create_hysteria_temp_file "hysteria-apply" "yaml"
+}
+
+# 配置文件同步提示函数
+prompt_config_sync() {
+    local rule_name="$1"
+
+    # 检查规则是否已应用到配置文件
+    if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        echo ""
+        echo -e "${YELLOW}⚠️  检测到此规则已应用到配置文件中${NC}"
+        echo -e "${YELLOW}是否需要同步更新到配置文件？${NC}"
+        echo ""
+        read -p "同步更新到配置文件？ [y/N]: " sync_choice
+
+        if [[ $sync_choice =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}正在同步更新到配置文件...${NC}"
+            # 调用应用规则函数来同步更新
+            if apply_rule_to_config_simple "$rule_name"; then
+                echo -e "${GREEN}✅ 配置文件已同步更新${NC}"
+                echo -e "${YELLOW}⚠️  配置已更新，需要重启服务生效 ⚠️${NC}"
+                echo ""
+                ask_restart_service
+            else
+                echo -e "${RED}❌ 配置文件同步失败${NC}"
+            fi
+        else
+            echo -e "${BLUE}仅更新了规则库，配置文件未变更${NC}"
+        fi
+    else
+        echo -e "${BLUE}✅ 规则库已更新${NC}"
+    fi
 }
 
 # 如果脚本被直接执行
