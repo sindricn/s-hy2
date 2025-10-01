@@ -137,7 +137,7 @@ check_script_integrity() {
 print_header() {
     clear
     echo -e "${CYAN}================================================${NC}"
-    echo -e "${CYAN}           Hysteria2 配置管理脚本 v1.1.0${NC}"
+    echo -e "${CYAN}           Hysteria2 配置管理脚本 v1.1.1${NC}"
     echo -e "${CYAN}================================================${NC}"
     echo ""
 }
