@@ -169,9 +169,22 @@ verify_installation() {
     fi
 
     local version
+    # 尝试多种方式获取版本号
     version=$(hysteria version 2>/dev/null | head -1)
+
+    if [[ -z "$version" ]]; then
+        version=$(hysteria --version 2>/dev/null | head -1)
+    fi
+    if [[ -z "$version" ]]; then
+        version=$(hysteria -v 2>/dev/null | head -1)
+    fi
+
+    # 提取版本号（支持多种格式）
     if [[ -n "$version" ]]; then
+        version=$(echo "$version" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         echo "✓ 安装完成: $version"
+    else
+        echo "✓ 安装完成"
     fi
 
     return 0
@@ -245,7 +258,23 @@ install_hysteria2() {
     # 检查是否已安装
     if command -v hysteria &> /dev/null; then
         local version
+        # 尝试多种方式获取版本号
         version=$(hysteria version 2>/dev/null | head -1)
+
+        # 如果第一种方式失败，尝试其他方式
+        if [[ -z "$version" ]]; then
+            version=$(hysteria --version 2>/dev/null | head -1)
+        fi
+        if [[ -z "$version" ]]; then
+            version=$(hysteria -v 2>/dev/null | head -1)
+        fi
+
+        # 提取版本号（支持多种格式）
+        if [[ -n "$version" ]]; then
+            # 尝试提取 v2.x.x 或 2.x.x 格式
+            version=$(echo "$version" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        fi
+
         echo -e "${YELLOW}检测到已安装的 Hysteria2: ${version:-未知版本}${NC}"
         echo ""
         echo -n "是否重新安装? [y/N]: "
@@ -256,7 +285,7 @@ install_hysteria2() {
         fi
         echo ""
         log_info "将执行重新安装..."
-        
+
         # 备份现有配置
         backup_existing_config
     fi
