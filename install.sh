@@ -122,12 +122,16 @@ install_hysteria2_binary() {
 
     echo "正在安装 Hysteria2..."
 
-    # 使用官方推荐的管道方式安装，过滤冗余输出
-    if timeout 300 bash <(curl -fsSL "$install_script_url") 2>&1 | grep -E "(Installing|Success|Complete|完成|成功)" | head -5; then
+    # 使用官方推荐的管道方式安装，捕获输出并过滤
+    local output
+    if output=$(timeout 300 bash <(curl -fsSL "$install_script_url") 2>&1); then
+        # 显示关键信息（如果有）
+        echo "$output" | grep -E "(Installing|Success|Complete|installed|完成|成功)" | head -3 || true
         echo "✓ 安装成功"
         return 0
     else
         log_error "安装失败"
+        echo "$output" | tail -5  # 显示最后几行错误信息
         return 1
     fi
 }
