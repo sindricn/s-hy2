@@ -1676,6 +1676,40 @@ ask_restart_service() {
 # ===== 新的核心功能实现 =====
 
 # 规则库文件路径
+# 统一的规则状态检查函数
+# 用途：检查规则是否已应用到配置文件
+# 参数：$1 - 规则名称
+# 返回：0=已应用, 1=未应用
+check_rule_applied_status() {
+    local rule_name="$1"
+    
+    if [[ -z "$rule_name" ]]; then
+        return 1
+    fi
+    
+    # 标准检查：配置文件中是否存在此规则的 name 字段
+    if [[ -f "$HYSTERIA_CONFIG" ]] && \
+       grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
+        return 0  # 已应用
+    else
+        return 1  # 未应用
+    fi
+}
+
+# 获取规则状态显示文本
+# 用途：返回规则应用状态的格式化文本
+# 参数：$1 - 规则名称
+# 输出：✅ 已应用 或 ❌ 未应用
+get_rule_status_text() {
+    local rule_name="$1"
+    
+    if check_rule_applied_status "$rule_name"; then
+        echo "✅ 已应用"
+    else
+        echo "❌ 未应用"
+    fi
+}
+
 # 规则库目录变量
 RULES_DIR="/etc/hysteria/outbound-rules"
 RULES_LIBRARY="$RULES_DIR/rules-library.yaml"
@@ -1757,11 +1791,7 @@ view_outbound_rules() {
             if [[ -n "$rule_name" ]]; then
                 ((lib_count++))
                 # 检查是否已应用 - 只根据配置文件实际状态
-                local status="❌ 未应用"
-                # 只检查配置文件中是否存在此规则
-                if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
-                    status="✅ 已应用"
-                fi
+                local status=$(get_rule_status_text "$rule_name")
                 echo "  $lib_count. $rule_name $status"
             fi
         done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
@@ -1814,7 +1844,7 @@ view_single_rule_details() {
             ((rule_count++))
             # 检查是否已应用
             local status="❌ 未应用"
-            if grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+            if check_rule_applied_status "$rule_name"; then
                 status="✅ 已应用"
             fi
             echo "  $rule_count. $rule_name $status"
@@ -1872,10 +1902,7 @@ view_single_rule_details() {
     echo "  规则描述: ${rule_desc:-"无描述"}"
 
     # 检查应用状态
-    local applied_status="❌ 未应用"
-    if grep -q "- $selected_rule" "$RULES_STATE" 2>/dev/null; then
-        applied_status="✅ 已应用"
-    fi
+    local applied_status=$(get_rule_status_text "$selected_rule")
     echo "  应用状态: $applied_status"
 
     echo ""
@@ -2130,7 +2157,7 @@ apply_outbound_rule() {
     while IFS= read -r rule_name; do
         if [[ -n "$rule_name" ]]; then
             # 检查是否已应用
-            if ! grep -q "- $rule_name" "$RULES_STATE" 2>/dev/null; then
+            if ! check_rule_applied_status "$rule_name"; then
                 unapplied_rules+=("$rule_name")
                 ((rule_count++))
                 echo "$rule_count. $rule_name"
@@ -2967,11 +2994,7 @@ delete_outbound_rule_new() {
         esac
 
         # 检查应用状态
-        if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
-            status="✅ 已应用"
-        else
-            status="❌ 未应用"
-        fi
+        local status=$(get_rule_status_text "$rule_name")
 
         printf "%-5d %-25s %-12s %s\n" "$((i+1))" "$rule_name" "$location_display" "$status"
     done
@@ -3244,7 +3267,7 @@ prompt_config_sync() {
     local rule_name="$1"
 
     # 检查规则是否已应用到配置文件
-    if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
+    if check_rule_applied_status "$rule_name"; then
         echo ""
         echo -e "${YELLOW}⚠️  检测到此规则已应用到配置文件中${NC}"
         echo -e "${YELLOW}是否需要同步更新到配置文件？${NC}"
