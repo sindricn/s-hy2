@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Hysteria2 配置管理脚本
-# 版本: 1.1.1
+# 版本: 1.1.2
 # 作者: Hysteria2 Manager
 
 # 颜色定义
@@ -137,7 +137,7 @@ check_script_integrity() {
 print_header() {
     clear
     echo -e "${CYAN}================================================${NC}"
-    echo -e "${CYAN}           Hysteria2 配置管理脚本 v1.1.1${NC}"
+    echo -e "${CYAN}           Hysteria2 配置管理脚本 v1.1.2${NC}"
     echo -e "${CYAN}================================================${NC}"
     echo ""
 }
@@ -2477,7 +2477,7 @@ about_script() {
     echo ""
     echo -e "${YELLOW}基本信息:${NC}"
     echo "脚本名称: S-Hy2 Manager"
-    echo "版本: 1.1.1"
+    echo "版本: 1.1.2"
     echo "功能: Hysteria2 代理服务器部署和管理工具"
     echo ""
     echo -e "${YELLOW}主要功能:${NC}"
