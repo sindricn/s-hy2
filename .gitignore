@@ -33,3 +33,7 @@ config.local.*
 # 运行时文件
 *.pid
 *.sock
+# Claude AI 相关文件
+.claude/
+claudedocs/
+*.claude
