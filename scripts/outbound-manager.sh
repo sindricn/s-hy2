@@ -2971,7 +2971,7 @@ delete_outbound_rule_new() {
 
 
     # === 调试信息 (可通过 export DEBUG_OUTBOUND=1 启用) ===
-    if [[ -n "${DEBUG_OUTBOUND}" ]]; then
+    if [[ -n "${DEBUG_OUTBOUND:-}" ]]; then
         echo -e "${CYAN}[调试] 规则库规则数: ${#library_rules[@]}${NC}"
         echo -e "${CYAN}[调试] 规则库规则: ${library_rules[*]}${NC}"
         echo -e "${CYAN}[调试] 配置文件规则数: ${#config_rules[@]}${NC}"
