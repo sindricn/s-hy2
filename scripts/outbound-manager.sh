@@ -1710,6 +1710,19 @@ get_rule_status_text() {
     fi
 }
 
+# 安全移动配置文件并修复权限（全局函数）
+safe_move_config() {
+    local temp_file="$1"
+    local target_file="$2"
+
+    if mv "$temp_file" "$target_file" 2>/dev/null; then
+        chmod 644 "$target_file" 2>/dev/null
+        return 0
+    else
+        return 1
+    fi
+}
+
 # 规则库目录变量
 RULES_DIR="/etc/hysteria/outbound-rules"
 RULES_LIBRARY="$RULES_DIR/rules-library.yaml"
@@ -2239,19 +2252,6 @@ apply_rule_to_config_simple() {
         ' "$RULES_LIBRARY"
     }
 
-    # 安全移动配置文件并修复权限
-    safe_move_config() {
-        local temp_file="$1"
-        local target_file="$2"
-
-        if mv "$temp_file" "$target_file" 2>/dev/null; then
-            # 修复配置文件权限，确保 Hysteria2 服务可以读取
-            chmod 644 "$target_file" 2>/dev/null
-            return 0
-        else
-            return 1
-        fi
-    }
 
     # 先提取配置参数（在使用前定义变量）- 完整参数支持
     local mode="" bindDevice="" bindIPv4="" bindIPv6="" fastOpen=""
@@ -2873,7 +2873,8 @@ remove_rule_from_config() {
     local rule_found=false
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$ ]]; then
+        # 使用更灵活的匹配方式，支持带引号或不带引号
+        if [[ "$line" =~ -[[:space:]]*name:[[:space:]]* ]] && [[ "$line" =~ $rule_name ]]; then
             in_target_rule=true
             rule_found=true
             continue

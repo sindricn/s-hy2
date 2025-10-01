@@ -67,7 +67,11 @@
       "SlashCommand(/sc:analyze:*)",
       "Bash(test_dns_resolution:*)",
       "Bash(echo $?)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(echo:*)",
+      "Bash(HYSTERIA_CONFIG=\"/tmp/test_config.yaml\" bash -c '\nsource /c/code/s-hy2/scripts/outbound-manager.sh 2>/dev/null\n\n# 测试提取配置文件中的规则\necho \"\"=== 配置文件中的规则 ===\"\"\nget_config_outbound_rules\n\necho \"\"\"\"\necho \"\"=== 测试删除配置文件中的规则 ===\"\"\n# 模拟删除 config_only_rule\nif remove_rule_from_config \"\"config_only_rule\"\"; then\n    echo \"\"✅ 删除成功\"\"\n    echo \"\"删除后的配置文件：\"\"\n    cat /tmp/test_config.yaml\nelse\n    echo \"\"❌ 删除失败\"\"\nfi\n')",
+      "Bash(HYSTERIA_CONFIG=\"/tmp/test_config.yaml\" bash -c '\nsource /c/code/s-hy2/scripts/outbound-manager.sh 2>/dev/null\n\nrule_name=\"\"config_only_rule\"\"\necho \"\"=== 调试删除过程 ===\"\"\necho \"\"配置文件: $HYSTERIA_CONFIG\"\"\necho \"\"规则名称: $rule_name\"\"\necho \"\"\"\"\necho \"\"配置文件内容:\"\"\ncat \"\"$HYSTERIA_CONFIG\"\"\necho \"\"\"\"\necho \"\"=== 逐行检查 ===\"\"\nwhile IFS= read -r line; do\n    echo \"\"处理行: \\\"\"$line\\\"\"\"\"\n    if [[ \"\"$line\"\" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*[\\\"\"'\"''\"']*${rule_name}[\\\"\"'\"''\"']*[[:space:]]*$ ]]; then\n        echo \"\"  → 找到匹配！\"\"\n    fi\ndone < \"\"$HYSTERIA_CONFIG\"\"\n')",
+      "Bash(HYSTERIA_CONFIG=\"/tmp/test_config.yaml\" bash -c '\nsource /c/code/s-hy2/scripts/outbound-manager.sh 2>/dev/null\n\necho \"\"=== 测试删除配置文件中的规则 ===\"\"\necho \"\"删除前:\"\"\ncat /tmp/test_config.yaml\necho \"\"\"\"\n\nif remove_rule_from_config \"\"config_only_rule\"\"; then\n    echo \"\"\"\"\n    echo \"\"✅ 删除成功！\"\"\n    echo \"\"删除后:\"\"\n    cat /tmp/test_config.yaml\nelse\n    echo \"\"\"\"\n    echo \"\"❌ 删除失败\"\"\nfi\n')"
     ],
     "deny": []
   }
