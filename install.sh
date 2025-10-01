@@ -42,123 +42,65 @@ check_system_compatibility() {
     local system_info
     system_info=$(get_system_info)
     read -r OS_ID VERSION_ID <<< "$system_info"
-    
-    log_info "检测系统: $OS_ID $VERSION_ID"
-    
+
+    # 静默检查，不输出信息
     case $OS_ID in
-        ubuntu)
-            if [[ $(echo "$VERSION_ID >= 18.04" | bc -l 2>/dev/null || echo 0) -eq 1 ]]; then
-                return 0
-            fi
-            ;;
-        debian)
-            if [[ $(echo "$VERSION_ID >= 9" | bc -l 2>/dev/null || echo 0) -eq 1 ]]; then
-                return 0
-            fi
-            ;;
-        centos|rhel)
-            if [[ $(echo "$VERSION_ID >= 7" | bc -l 2>/dev/null || echo 0) -eq 1 ]]; then
-                return 0
-            fi
-            ;;
-        fedora)
-            if [[ $(echo "$VERSION_ID >= 30" | bc -l 2>/dev/null || echo 0) -eq 1 ]]; then
-                return 0
-            fi
+        ubuntu|debian|centos|rhel|fedora)
+            return 0
             ;;
         *)
-            log_warn "未知系统，将尝试通用安装"
             return 0
             ;;
     esac
-    
-    log_warn "系统版本可能不完全兼容，但将尝试安装"
-    return 0
 }
 
 # 检查网络连接
 check_network_connection() {
-    log_info "检查网络连接..."
-
     local test_urls=(
-        "https://github.com"
         "https://get.hy2.sh"
-        "https://www.google.com"
-        "https://raw.githubusercontent.com"
+        "https://github.com"
     )
 
-    local connected=false
-    # 直接使用 HTTP 连接测试，更可靠
+    # 静默检测网络
     for url in "${test_urls[@]}"; do
-        if curl -s --connect-timeout 3 --max-time 8 --head "$url" >/dev/null 2>&1; then
-            connected=true
-            break
+        if curl -s --connect-timeout 3 --max-time 5 --head "$url" >/dev/null 2>&1; then
+            return 0
         fi
     done
-    
-    if $connected; then
-        log_success "网络连接正常"
-        return 0
-    else
-        log_error "网络连接检查失败"
-        echo "请检查:"
-        echo "1. 网络连接是否正常"
-        echo "2. DNS 解析是否正常"
-        echo "3. 防火墙是否阻止了连接"
-        echo ""
-        echo "是否继续安装? (可能会失败) [y/N]"
-        read -r continue_install
-        if [[ $continue_install =~ ^[Yy]$ ]]; then
-            return 0
-        else
-            return 1
-        fi
-    fi
+
+    # 网络失败才提示
+    log_error "网络连接失败，请检查网络后重试"
+    return 1
 }
 
 # 检查必要的命令
 check_required_commands() {
     local missing_commands=()
     local required_commands=("curl" "systemctl")
-    
+
     for cmd in "${required_commands[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             missing_commands+=("$cmd")
         fi
     done
-    
+
     if [[ ${#missing_commands[@]} -gt 0 ]]; then
-        log_error "缺少必要的命令:"
-        printf ' • %s\n' "${missing_commands[@]}"
-        echo ""
-        echo "请先安装这些命令，然后重新运行脚本"
+        log_error "缺少必要命令: ${missing_commands[*]}"
         return 1
     fi
-    
+
     return 0
 }
 
 # 检查端口占用
 check_port_usage() {
     local port=443
-    
-    if ss -tlnp | grep -q ":$port "; then
-        log_warn "端口 $port 已被占用"
-        echo ""
-        echo "占用端口 $port 的进程:"
-        ss -tlnp | grep ":$port " || netstat -tlnp | grep ":$port " 2>/dev/null
-        echo ""
-        echo "请处理端口占用后重新安装，或在配置时使用其他端口"
-        echo ""
-        echo -n "是否继续安装? [y/N]: "
-        read -r continue_install
-        if [[ ! $continue_install =~ ^[Yy]$ ]]; then
-            return 1
-        fi
-    else
-        log_success "端口 $port 可用"
+
+    # 静默检查端口，只在占用时提示
+    if ss -tlnp 2>/dev/null | grep -q ":$port " || netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+        log_warn "端口 $port 已被占用，配置时可使用其他端口"
     fi
-    
+
     return 0
 }
 
@@ -173,107 +115,61 @@ backup_existing_config() {
     return 1
 }
 
-# 安装 Hysteria2 (安全版本)
+# 安装 Hysteria2
 install_hysteria2_binary() {
-    log_info "开始安装 Hysteria2..."
-
-    # 设置安装脚本的环境变量
     export HYSTERIA_INSTALL_METHOD="script"
-
-    # 使用官方推荐的安装方式
     local install_script_url="https://get.hy2.sh/"
 
-    log_info "执行官方安装脚本..."
+    echo "正在安装 Hysteria2..."
 
-    # 使用官方推荐的管道方式安装
-    if timeout 300 bash <(curl -fsSL "$install_script_url"); then
-        log_success "Hysteria2 安装成功"
+    # 使用官方推荐的管道方式安装，过滤冗余输出
+    if timeout 300 bash <(curl -fsSL "$install_script_url") 2>&1 | grep -E "(Installing|Success|Complete|完成|成功)" | head -5; then
+        echo "✓ 安装成功"
         return 0
     else
-        log_error "Hysteria2 安装失败"
-        log_info "如果安装失败，请检查网络连接或手动执行: bash <(curl -fsSL https://get.hy2.sh/)"
+        log_error "安装失败"
         return 1
     fi
 }
 
 # 配置系统服务
 configure_system_service() {
-    log_info "配置系统服务..."
-    
-    # 检查服务文件是否存在
     local service_file="/lib/systemd/system/hysteria-server.service"
+
     if [[ ! -f "$service_file" ]] && [[ ! -f "/usr/lib/systemd/system/hysteria-server.service" ]]; then
-        log_warn "系统服务文件未找到，可能需要手动配置"
         return 1
     fi
-    
-    # 重新加载 systemd
-    systemctl daemon-reload
-    
-    # 启用服务（但不启动，等配置完成后再启动）
-    if systemctl enable hysteria-server.service; then
-        log_success "系统服务配置成功"
-        return 0
-    else
-        log_error "系统服务配置失败"
-        return 1
-    fi
+
+    systemctl daemon-reload 2>/dev/null
+    systemctl enable hysteria-server.service >/dev/null 2>&1
+    return 0
 }
 
 # 创建配置目录
 create_config_directory() {
-    log_info "创建配置目录..."
-    
-    if mkdir -p /etc/hysteria; then
-        # 设置适当的权限
+    if mkdir -p /etc/hysteria 2>/dev/null; then
         chmod 755 /etc/hysteria
-        
-        # 如果 hysteria 用户存在，设置所有权
         if id hysteria &>/dev/null; then
-            chown hysteria:hysteria /etc/hysteria
+            chown hysteria:hysteria /etc/hysteria 2>/dev/null
         fi
-        
-        log_success "配置目录创建成功"
         return 0
-    else
-        log_error "配置目录创建失败"
-        return 1
     fi
+    return 1
 }
 
 # 检查安装结果
 verify_installation() {
-    log_info "验证安装结果..."
-    
-    # 检查二进制文件
     if ! command -v hysteria &> /dev/null; then
-        log_error "Hysteria2 二进制文件未找到"
+        log_error "二进制文件未找到"
         return 1
     fi
-    
-    # 检查版本
+
     local version
     version=$(hysteria version 2>/dev/null | head -1)
     if [[ -n "$version" ]]; then
-        log_success "Hysteria2 安装成功: $version"
-    else
-        log_warn "无法获取版本信息，但二进制文件存在"
+        echo "✓ 安装完成: $version"
     fi
-    
-    # 检查系统服务
-    if systemctl list-unit-files | grep -q hysteria-server; then
-        log_success "系统服务注册成功"
-    else
-        log_warn "系统服务未正确注册"
-    fi
-    
-    # 检查用户账户
-    if id hysteria &>/dev/null; then
-        log_success "hysteria 用户账户存在"
-    else
-        log_warn "hysteria 用户账户不存在"
-    fi
-    
+
     return 0
 }
 
@@ -361,51 +257,27 @@ install_hysteria2() {
         backup_existing_config
     fi
     
-    # 执行安装前检查
-    log_info "执行安装前检查..."
+    # 执行安装前检查（静默）
+    echo "检查环境..."
+
+    check_system_compatibility || error_exit "系统不兼容"
+    check_required_commands || error_exit "缺少必要命令"
+    check_network_connection || error_exit "网络失败"
+    check_port_usage
+
     echo ""
-    
-    if ! check_system_compatibility; then
-        error_exit "系统兼容性检查失败"
-    fi
-    
-    if ! check_required_commands; then
-        error_exit "必要命令检查失败"
-    fi
-    
-    if ! check_network_connection; then
-        error_exit "网络连接检查失败"
-    fi
-    
-    if ! check_port_usage; then
-        error_exit "端口检查失败"
-    fi
-    
-    echo ""
-    log_success "所有检查通过，开始安装..."
-    echo ""
-    
+
     # 执行安装步骤
     local install_success=true
-    
-    # 步骤1: 安装二进制文件
+
     if ! install_hysteria2_binary; then
         install_success=false
     fi
-    
-    # 步骤2: 创建配置目录
-    if $install_success && ! create_config_directory; then
-        log_warn "配置目录创建失败，但继续安装"
-    fi
-    
-    # 步骤3: 配置系统服务
-    if $install_success && ! configure_system_service; then
-        log_warn "系统服务配置失败，但继续安装"
-    fi
-    
-    # 步骤4: 验证安装
-    if $install_success && ! verify_installation; then
-        install_success=false
+
+    if $install_success; then
+        create_config_directory
+        configure_system_service
+        verify_installation || install_success=false
     fi
     
     # 显示结果
