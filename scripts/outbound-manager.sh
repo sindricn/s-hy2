@@ -1762,21 +1762,15 @@ view_outbound_rules() {
 
     # 显示配置文件中的规则
     echo -e "${GREEN}📄 配置文件中的规则：${NC}"
-    if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "^[[:space:]]*outbounds:" "$HYSTERIA_CONFIG"; then
-        local rule_count=0
-        while IFS= read -r line; do
-            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*(.+)$ ]]; then
-                local rule_name="${BASH_REMATCH[1]}"
-                rule_name=$(echo "$rule_name" | tr -d '"' | xargs)
-                ((rule_count++))
-                echo "  $rule_count. $rule_name ✅"
-            fi
-        done < <(sed -n '/^[[:space:]]*outbounds:/,/^[a-zA-Z]/p' "$HYSTERIA_CONFIG" | head -n -1)
-
-        if [[ $rule_count -eq 0 ]]; then
-            echo "  (无规则)"
+    local config_rule_count=0
+    while IFS= read -r rule_name; do
+        if [[ -n "$rule_name" ]]; then
+            ((config_rule_count++))
+            echo "  $config_rule_count. $rule_name ✅"
         fi
-    else
+    done < <(get_config_outbound_rules)
+
+    if [[ $config_rule_count -eq 0 ]]; then
         echo "  (无规则)"
     fi
 
@@ -2853,12 +2847,13 @@ get_config_outbound_rules() {
         return 1
     fi
 
-    # 提取配置文件中所有的 outbound 规则名称
+    # 提取配置文件中所有的 outbound/outbounds 规则名称
+    # 兼容 outbound: 和 outbounds: 两种格式
     awk '
-    /^[[:space:]]*outbound:[[:space:]]*$/ { in_outbound = 1; next }
-    in_outbound && /^[[:space:]]*[a-zA-Z]+:[[:space:]]*$/ && !/^[[:space:]]*(outbound|transport|auth|masquerade|bandwidth):/ { in_outbound = 0 }
+    /^[[:space:]]*(outbound|outbounds):[[:space:]]*$/ { in_outbound = 1; next }
+    in_outbound && /^[[:space:]]*[a-zA-Z]+:[[:space:]]*$/ && !/^[[:space:]]*(outbound|outbounds|transport|auth|masquerade|bandwidth):/ { in_outbound = 0 }
     in_outbound && /^[[:space:]]*-[[:space:]]*name:[[:space:]]*(.+)$/ {
-        match($0, /name:[[:space:]]*([^[:space:]]+)/, arr)
+        match($0, /name:[[:space:]]*["\047]?([^"\047[:space:]]+)["\047]?/, arr)
         if (arr[1]) print arr[1]
     }
     ' "$HYSTERIA_CONFIG" 2>/dev/null
@@ -2974,6 +2969,23 @@ delete_outbound_rule_new() {
         fi
     done
 
+
+    # === 调试信息 (可通过 export DEBUG_OUTBOUND=1 启用) ===
+    if [[ -n "${DEBUG_OUTBOUND}" ]]; then
+        echo -e "${CYAN}[调试] 规则库规则数: ${#library_rules[@]}${NC}"
+        echo -e "${CYAN}[调试] 规则库规则: ${library_rules[*]}${NC}"
+        echo -e "${CYAN}[调试] 配置文件规则数: ${#config_rules[@]}${NC}"
+        echo -e "${CYAN}[调试] 配置文件规则: ${config_rules[*]}${NC}"
+        echo ""
+        echo -e "${CYAN}[调试] 关联数组状态:${NC}"
+        for rule in "${all_rule_names[@]}"; do
+            local in_lib=${rule_in_library[$rule]:-0}
+            local in_conf=${rule_in_config[$rule]:-0}
+            echo "  $rule: lib=$in_lib, conf=$in_conf"
+        done
+        echo ""
+    fi
+    # === 调试信息结束 ===
     # 为每个规则确定来源
     for rule in "${all_rule_names[@]}"; do
         all_rules+=("$rule")
