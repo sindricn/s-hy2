@@ -119,42 +119,89 @@ detect_network_quality() {
     fi
 }
 
-# 测试单个域名延迟（优化版本）
+# DNS解析验证函数
+test_dns_resolution() {
+    local domain=$1
+    local timeout_val=${2:-3}
+
+    # 使用dig验证DNS解析（优先）
+    if command -v dig >/dev/null 2>&1; then
+        if timeout "$timeout_val" dig +short "$domain" A >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    # 使用nslookup作为备用
+    if command -v nslookup >/dev/null 2>&1; then
+        if timeout "$timeout_val" nslookup "$domain" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    # 使用host作为最后备用
+    if command -v host >/dev/null 2>&1; then
+        if timeout "$timeout_val" host "$domain" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# 测试单个域名延迟（优化版本 + DNS验证）
 test_domain_latency() {
     local domain=$1
     local timeout_val=${2:-3}
     local attempts=${3:-2}  # 默认尝试2次
     local results=()
-    
+
     # 检查缓存
     local cache_file=$(get_cache_file "$domain")
     if is_cache_valid "$cache_file"; then
-        read_from_cache "$cache_file"
-        return 0
+        local cached_result=$(read_from_cache "$cache_file")
+        # 验证缓存结果是否包含DNS验证状态
+        if [[ "$cached_result" =~ dns_ok|dns_fail ]]; then
+            echo "$cached_result"
+            return 0
+        fi
     fi
-    
-    # 多次测试取最佳结果
+
+    # 首先验证DNS解析
+    local dns_status="dns_fail"
+    if test_dns_resolution "$domain" "$timeout_val"; then
+        dns_status="dns_ok"
+    else
+        # DNS解析失败，直接返回失败状态
+        local result="9999 $domain $dns_status"
+        write_to_cache "$cache_file" "$result"
+        return 1
+    fi
+
+    # 多次测试取最佳结果（只有DNS解析成功才测试连接）
     for ((i=1; i<=attempts; i++)); do
         local start_time=$(date +%s%3N)
-        
+
         if timeout "$timeout_val" openssl s_client -connect "$domain:443" -servername "$domain" </dev/null >/dev/null 2>&1; then
             local end_time=$(date +%s%3N)
             local latency=$((end_time - start_time))
             results+=($latency)
         fi
     done
-    
+
     # 如果有成功的测试结果，返回最小值
     if [[ ${#results[@]} -gt 0 ]]; then
         local min_latency=$(printf '%s\n' "${results[@]}" | sort -n | head -1)
-        local result="$min_latency $domain"
-        
+        local result="$min_latency $domain $dns_status"
+
         # 写入缓存
         write_to_cache "$cache_file" "$result"
         echo "$result"
         return 0
     fi
-    
+
+    # SSL连接失败但DNS解析成功
+    local result="9999 $domain $dns_status"
+    write_to_cache "$cache_file" "$result"
     return 1
 }
 
@@ -187,14 +234,15 @@ test_all_domains_concurrent_silent() {
     # 等待所有任务完成
     wait
     
-    # 返回排序结果
+    # 返回排序结果（过滤DNS失败的域名）
     if [[ -s "$results_file" ]]; then
-        sort -n "$results_file"
+        # 只返回DNS解析成功且延迟不是9999的结果
+        awk '$1 != 9999 && $3 == "dns_ok" {print $1 " " $2 " " $3}' "$results_file" | sort -n
         local exit_code=0
     else
         local exit_code=1
     fi
-    
+
     rm -f "$results_file"
     return $exit_code
 }
@@ -253,14 +301,15 @@ test_all_domains_concurrent() {
     echo -e "${GREEN}测试完成!${NC}" >&2
     echo "" >&2
     
-    # 返回排序结果
+    # 返回排序结果（过滤DNS失败的域名）
     if [[ -s "$results_file" ]]; then
-        sort -n "$results_file"
+        # 只返回DNS解析成功且延迟不是9999的结果
+        awk '$1 != 9999 && $3 == "dns_ok" {print $1 " " $2 " " $3}' "$results_file" | sort -n
         local exit_code=0
     else
         local exit_code=1
     fi
-    
+
     # 清理临时文件
     rm -f "$results_file" "$progress_file"
     return $exit_code
@@ -281,11 +330,11 @@ show_test_results() {
         return 1
     fi
     
-    printf "%-5s %-30s %-8s %s\n" "排名" "域名" "延迟(ms)" "评级"
-    echo "------------------------------------------------"
-    
+    printf "%-5s %-30s %-8s %-8s %s\n" "排名" "域名" "延迟(ms)" "DNS状态" "评级"
+    echo "---------------------------------------------------------"
+
     local rank=1
-    echo "$results" | head -n 10 | while read -r latency domain; do
+    echo "$results" | head -n 10 | while read -r latency domain dns_status; do
         # 延迟评级
         local rating
         if [[ $latency -lt 50 ]]; then
@@ -300,7 +349,15 @@ show_test_results() {
             rating="${RED}较差${NC}"
         fi
         
-        printf "%-5d %-30s %-8d %b\n" "$rank" "$domain" "$latency" "$rating"
+        # DNS状态显示
+        local dns_display
+        if [[ "$dns_status" == "dns_ok" ]]; then
+            dns_display="${GREEN}正常${NC}"
+        else
+            dns_display="${RED}失败${NC}"
+        fi
+
+        printf "%-5d %-30s %-8d %-8s %b\n" "$rank" "$domain" "$latency" "$dns_display" "$rating"
         rank=$((rank + 1))
     done
 }
@@ -310,7 +367,13 @@ get_best_domain() {
     local best_result=$(test_all_domains_concurrent_silent | head -n 1)
     if [[ -n "$best_result" ]]; then
         local domain=$(echo "$best_result" | awk '{print $2}')
-        echo "https://$domain/"
+        local dns_status=$(echo "$best_result" | awk '{print $3}')
+        # 确保DNS解析成功
+        if [[ "$dns_status" == "dns_ok" ]]; then
+            echo "https://$domain/"
+        else
+            echo "https://news.ycombinator.com/"
+        fi
     else
         echo "https://news.ycombinator.com/"
     fi
@@ -320,7 +383,14 @@ get_best_domain() {
 get_best_domain_name() {
     local best_result=$(test_all_domains_concurrent_silent | head -n 1)
     if [[ -n "$best_result" ]]; then
-        echo "$best_result" | awk '{print $2}'
+        local domain=$(echo "$best_result" | awk '{print $2}')
+        local dns_status=$(echo "$best_result" | awk '{print $3}')
+        # 确保DNS解析成功
+        if [[ "$dns_status" == "dns_ok" ]]; then
+            echo "$domain"
+        else
+            echo "cdn.jsdelivr.net"
+        fi
     else
         echo "cdn.jsdelivr.net"
     fi
@@ -400,8 +470,9 @@ interactive_domain_selection() {
         if [[ -n "$line" ]]; then
             local latency=$(echo "$line" | awk '{print $1}')
             local domain=$(echo "$line" | awk '{print $2}')
+            local dns_status=$(echo "$line" | awk '{print $3}')
 
-            if [[ "$latency" =~ ^[0-9]+$ ]] && [[ -n "$domain" ]] && [[ ! "$domain" =~ [[:space:]] ]]; then
+            if [[ "$latency" =~ ^[0-9]+$ ]] && [[ -n "$domain" ]] && [[ ! "$domain" =~ [[:space:]] ]] && [[ "$dns_status" == "dns_ok" ]]; then
                 # 延迟评级
                 local rating
                 if [[ $latency -lt 100 ]]; then
@@ -411,7 +482,7 @@ interactive_domain_selection() {
                 else
                     rating="${RED}一般${NC}"
                 fi
-                
+
                 printf "%-5d %-30s %-8d %b\n" "$index" "$domain" "$latency" "$rating"
                 domains_array+=("$domain")
                 index=$((index + 1))
@@ -544,8 +615,8 @@ test_custom_domains() {
     echo ""
     echo -e "${BLUE}开始并发测试 ${#custom_domains[@]} 个自定义域名...${NC}"
     echo ""
-    printf "%-30s %-10s %s\n" "域名" "延迟(ms)" "状态"
-    echo "------------------------------------------------"
+    printf "%-30s %-10s %-8s %s\n" "域名" "延迟(ms)" "DNS状态" "状态"
+    echo "-------------------------------------------------------"
     
     local results_file=$(mktemp)
     local network_quality=$(detect_network_quality)
@@ -560,10 +631,17 @@ test_custom_domains() {
         (
             if result=$(test_domain_latency "$domain" "$timeout_val" 1); then
                 local latency=$(echo "$result" | awk '{print $1}')
-                printf "%-30s %-10d %s\n" "$domain" "$latency" "${GREEN}成功${NC}"
+                local dns_status=$(echo "$result" | awk '{print $3}')
+                local dns_display
+                if [[ "$dns_status" == "dns_ok" ]]; then
+                    dns_display="${GREEN}正常${NC}"
+                else
+                    dns_display="${RED}失败${NC}"
+                fi
+                printf "%-30s %-10d %-8s %s\n" "$domain" "$latency" "$dns_display" "${GREEN}成功${NC}"
                 echo "$result" >> "$results_file"
             else
-                printf "%-30s %-10s %s\n" "$domain" "-" "${RED}失败${NC}"
+                printf "%-30s %-10s %-8s %s\n" "$domain" "-" "${RED}失败${NC}" "${RED}失败${NC}"
             fi
         ) &
     done

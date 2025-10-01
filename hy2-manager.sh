@@ -109,7 +109,7 @@ check_script_integrity() {
     
     # 检查必需的脚本文件
     local required_scripts=(
-        "install.sh"
+        # "install.sh" (在根目录)
         "config.sh"
         "service.sh"
         "domain-test.sh"
@@ -262,7 +262,7 @@ wait_for_user() {
 install_hysteria() {
     log_info "准备安装 Hysteria2..."
     
-    if safe_source_script "$SCRIPTS_DIR/install.sh" "安装脚本"; then
+    if safe_source_script "$SCRIPT_DIR/install.sh" "安装脚本"; then
         install_hysteria2
     fi
     wait_for_user

@@ -2820,54 +2820,200 @@ update_rule_config_value() {
     fi
 }
 
-# 5. 删除出站规则
+# 获取配置文件中的所有出站规则名称
+get_config_outbound_rules() {
+    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
+        return 1
+    fi
+
+    # 提取配置文件中所有的 outbound 规则名称
+    awk '
+    /^[[:space:]]*outbound:[[:space:]]*$/ { in_outbound = 1; next }
+    in_outbound && /^[[:space:]]*[a-zA-Z]+:[[:space:]]*$/ && !/^[[:space:]]*(outbound|transport|auth|masquerade|bandwidth):/ { in_outbound = 0 }
+    in_outbound && /^[[:space:]]*-[[:space:]]*name:[[:space:]]*(.+)$/ {
+        match($0, /name:[[:space:]]*([^[:space:]]+)/, arr)
+        if (arr[1]) print arr[1]
+    }
+    ' "$HYSTERIA_CONFIG" 2>/dev/null
+}
+
+# 从配置文件中删除指定的出站规则
+remove_rule_from_config() {
+    local rule_name="$1"
+
+    if [[ ! -f "$HYSTERIA_CONFIG" ]]; then
+        log_error "配置文件不存在"
+        return 1
+    fi
+
+    local temp_config="/tmp/hysteria_delete_config_$$_$(date +%s).yaml"
+    local in_target_rule=false
+    local rule_found=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+            in_target_rule=true
+            rule_found=true
+            continue
+        elif [[ "$in_target_rule" == true ]]; then
+            # 检查是否到达下一个规则或段落
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
+                in_target_rule=false
+                echo "$line" >> "$temp_config"
+            fi
+            # 在目标规则中的行都跳过
+        else
+            echo "$line" >> "$temp_config"
+        fi
+    done < "$HYSTERIA_CONFIG"
+
+    if [[ "$rule_found" == true ]]; then
+        if safe_move_config "$temp_config" "$HYSTERIA_CONFIG"; then
+            log_success "已从配置文件中删除规则 '$rule_name'"
+            return 0
+        else
+            log_error "配置文件更新失败"
+            rm -f "$temp_config"
+            return 1
+        fi
+    else
+        log_warn "在配置文件中未找到规则 '$rule_name'"
+        rm -f "$temp_config"
+        return 1
+    fi
+}
+
+# 5. 删除出站规则 (增强版)
 delete_outbound_rule_new() {
     init_rules_library
 
     echo -e "${BLUE}=== 删除出站规则 ===${NC}"
     echo ""
 
-    # 列出规则库中的规则 - 使用可靠的grep方法
-    local rules=()
-    local rule_count=0
-
+    # 收集规则库中的规则
+    local library_rules=()
     while IFS= read -r rule_name; do
         if [[ -n "$rule_name" ]]; then
-            rules+=("$rule_name")
-            ((rule_count++))
-
-            # 检查是否已应用 - 只根据配置文件实际状态
-            local status="❌ 未应用"
-            if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
-                status="✅ 已应用"
-            fi
-            echo "$rule_count. $rule_name $status"
+            library_rules+=("$rule_name")
         fi
     done < <(grep -o "^[[:space:]]\{2\}[a-zA-Z_][a-zA-Z0-9_]*:" "$RULES_LIBRARY" | sed 's/^[[:space:]]\{2\}\([^:]*\):.*/\1/')
 
-    if [[ ${#rules[@]} -eq 0 ]]; then
-        echo -e "${YELLOW}没有可删除的规则${NC}"
+    # 收集配置文件中的规则
+    local config_rules=()
+    while IFS= read -r rule_name; do
+        if [[ -n "$rule_name" ]]; then
+            config_rules+=("$rule_name")
+        fi
+    done < <(get_config_outbound_rules)
+
+    # 合并去重规则列表
+    local all_rules=()
+    local rule_sources=()  # 记录规则来源: library/config/both
+    local rule_count=0
+
+    # 添加规则库中的规则
+    for rule in "${library_rules[@]}"; do
+        all_rules+=("$rule")
+        rule_sources+=("library")
+        ((rule_count++))
+    done
+
+    # 添加配置文件中独有的规则
+    for rule in "${config_rules[@]}"; do
+        local found_in_library=false
+        for lib_rule in "${library_rules[@]}"; do
+            if [[ "$rule" == "$lib_rule" ]]; then
+                found_in_library=true
+                # 更新来源为both
+                for i in "${!all_rules[@]}"; do
+                    if [[ "${all_rules[i]}" == "$rule" ]]; then
+                        rule_sources[i]="both"
+                        break
+                    fi
+                done
+                break
+            fi
+        done
+
+        if [[ "$found_in_library" == false ]]; then
+            all_rules+=("$rule")
+            rule_sources+=("config")
+            ((rule_count++))
+        fi
+    done
+
+    if [[ ${#all_rules[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}没有找到任何规则${NC}"
         wait_for_user
         return
     fi
 
+    echo -e "${CYAN}找到以下规则:${NC}"
     echo ""
-    read -p "请选择要删除的规则 [1-$rule_count]: " choice
+    printf "%-5s %-25s %-12s %s\n" "编号" "规则名称" "位置" "状态"
+    echo "---------------------------------------------------"
+
+    for i in "${!all_rules[@]}"; do
+        local rule_name="${all_rules[i]}"
+        local source="${rule_sources[i]}"
+        local status=""
+
+        # 确定位置显示
+        local location_display
+        case "$source" in
+            "library") location_display="${GREEN}规则库${NC}" ;;
+            "config") location_display="${YELLOW}配置文件${NC}" ;;
+            "both") location_display="${BLUE}规则库+配置${NC}" ;;
+        esac
+
+        # 检查应用状态
+        if [[ -f "$HYSTERIA_CONFIG" ]] && grep -q "name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$" "$HYSTERIA_CONFIG" 2>/dev/null; then
+            status="✅ 已应用"
+        else
+            status="❌ 未应用"
+        fi
+
+        printf "%-5d %-25s %-12s %s\n" "$((i+1))" "$rule_name" "$location_display" "$status"
+    done
+
+    echo ""
+    echo -e "${YELLOW}说明:${NC}"
+    echo "• 规则库: 规则模板，可重复应用"
+    echo "• 配置文件: 当前活动的规则"
+    echo "• 规则库+配置: 存在于两个位置"
+    echo ""
+
+    read -p "请选择要删除的规则编号 [1-$rule_count]: " choice
 
     if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt $rule_count ]]; then
         log_error "无效选择"
         return 1
     fi
 
-    local selected_rule="${rules[$((choice-1))]}"
+    local selected_rule="${all_rules[$((choice-1))]}"
+    local selected_source="${rule_sources[$((choice-1))]}"
 
     echo ""
     echo -e "${RED}⚠️  警告: 即将删除规则 '$selected_rule'${NC}"
 
-    # 检查是否已应用
-    if grep -q "- $selected_rule" "$RULES_STATE" 2>/dev/null; then
-        echo -e "${YELLOW}此规则当前已应用，删除将同时从配置文件中移除${NC}"
-    fi
+    # 根据规则位置给出不同的提示
+    case "$selected_source" in
+        "library")
+            echo -e "${YELLOW}此规则仅存在于规则库中${NC}"
+            ;;
+        "config")
+            echo -e "${YELLOW}此规则仅存在于配置文件中，删除后将立即生效${NC}"
+            ;;
+        "both")
+            echo -e "${YELLOW}此规则同时存在于规则库和配置文件中${NC}"
+            echo "选择删除范围:"
+            echo "1. 仅从规则库中删除"
+            echo "2. 仅从配置文件中删除"
+            echo "3. 同时从两个位置删除"
+            echo ""
+            read -p "请选择 [1-3]: " delete_scope
+            ;;
+    esac
 
     echo ""
     read -p "确认删除？ [y/N]: " confirm
@@ -2877,57 +3023,95 @@ delete_outbound_rule_new() {
         return 0
     fi
 
-    # 如果已应用，先从配置中移除
-    if grep -q "- $selected_rule" "$RULES_STATE" 2>/dev/null; then
-        echo "正在从配置文件中移除..."
+    local delete_success=false
 
-        # 从配置文件中删除
-        if [[ -f "$HYSTERIA_CONFIG" ]]; then
-            local temp_config="/tmp/hysteria_delete_$$_$(date +%s).yaml"
-            local in_target_rule=false
-
-            while IFS= read -r line || [[ -n "$line" ]]; do
-                if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${selected_rule}[[:space:]]*$ ]]; then
-                    in_target_rule=true
-                    continue
-                elif [[ "$in_target_rule" == true ]]; then
-                    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name: ]] || [[ "$line" =~ ^[[:space:]]*[a-zA-Z]+:[[:space:]]*$ ]] && [[ ! "$line" =~ ^[[:space:]]*(type|direct|socks5|http|addr|url|mode|username|password|insecure): ]]; then
-                        in_target_rule=false
-                        echo "$line" >> "$temp_config"
-                    fi
-                    # 在规则中的行都跳过
-                else
-                    echo "$line" >> "$temp_config"
-                fi
-            done < "$HYSTERIA_CONFIG"
-
-            safe_move_config "$temp_config" "$HYSTERIA_CONFIG"
-        fi
-
-        # 从状态文件中移除
-        local temp_state="${RULES_STATE}.tmp"
-        if awk -v rule="$selected_rule" '
-        $0 == "  - " rule { next }
-        { print }
-        ' "$RULES_STATE" > "$temp_state" 2>/dev/null; then
-            if [[ -s "$temp_state" ]]; then
-                mv "$temp_state" "$RULES_STATE" 2>/dev/null || rm -f "$temp_state"
-            else
-                rm -f "$temp_state"
+    # 执行删除操作
+    case "$selected_source" in
+        "library")
+            if delete_rule_from_library "$selected_rule"; then
+                delete_success=true
             fi
-        else
-            rm -f "$temp_state"
+            ;;
+        "config")
+            if remove_rule_from_config "$selected_rule"; then
+                delete_success=true
+                # 从状态文件中移除
+                remove_rule_from_state "$selected_rule"
+            fi
+            ;;
+        "both")
+            case "$delete_scope" in
+                1)
+                    if delete_rule_from_library "$selected_rule"; then
+                        delete_success=true
+                    fi
+                    ;;
+                2)
+                    if remove_rule_from_config "$selected_rule"; then
+                        remove_rule_from_state "$selected_rule"
+                        delete_success=true
+                    fi
+                    ;;
+                3)
+                    local lib_success=false
+                    local config_success=false
+
+                    if delete_rule_from_library "$selected_rule"; then
+                        lib_success=true
+                    fi
+
+                    if remove_rule_from_config "$selected_rule"; then
+                        remove_rule_from_state "$selected_rule"
+                        config_success=true
+                    fi
+
+                    if [[ "$lib_success" == true ]] || [[ "$config_success" == true ]]; then
+                        delete_success=true
+                    fi
+                    ;;
+                *)
+                    log_error "无效的删除范围选择"
+                    return 1
+                    ;;
+            esac
+            ;;
+    esac
+
+    if [[ "$delete_success" == true ]]; then
+        log_success "规则 '$selected_rule' 删除操作完成"
+
+        # 如果删除了配置文件中的规则，询问是否重启服务
+        if [[ "$selected_source" == "config" ]] || [[ "$selected_source" == "both" && ("$delete_scope" == "2" || "$delete_scope" == "3") ]]; then
+            echo ""
+            read -p "是否重启 Hysteria2 服务以应用更改？ [y/N]: " restart_service
+            if [[ $restart_service =~ ^[Yy]$ ]]; then
+                if systemctl restart hysteria-server 2>/dev/null; then
+                    log_success "服务已重启"
+                else
+                    log_warn "服务重启失败，请手动重启"
+                fi
+            fi
         fi
+    else
+        log_error "规则删除失败"
+        return 1
     fi
 
-    # 从规则库中删除
-    local temp_library="/tmp/rules_delete_$$_$(date +%s).yaml"
+    wait_for_user
+}
+
+# 从规则库中删除规则的辅助函数
+delete_rule_from_library() {
+    local rule_name="$1"
+    local temp_library="/tmp/rules_delete_library_$$_$(date +%s).yaml"
     local in_target_rule=false
     local rule_indent=""
+    local rule_found=false
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" =~ ^[[:space:]]*${selected_rule}:[[:space:]]*$ ]]; then
+        if [[ "$line" =~ ^[[:space:]]*${rule_name}:[[:space:]]*$ ]]; then
             in_target_rule=true
+            rule_found=true
             rule_indent=$(echo "$line" | sed 's/[a-zA-Z].*//')
             continue
         elif [[ "$in_target_rule" == true ]]; then
@@ -2948,24 +3132,39 @@ delete_outbound_rule_new() {
         fi
     done < "$RULES_LIBRARY"
 
-    if mv "$temp_library" "$RULES_LIBRARY"; then
-        log_success "规则 '$selected_rule' 已删除"
-
-        read -p "是否重启 Hysteria2 服务？ [y/N]: " restart_service
-        if [[ $restart_service =~ ^[Yy]$ ]]; then
-            if systemctl restart hysteria-server 2>/dev/null; then
-                log_success "服务已重启"
-            else
-                log_warn "服务重启失败，请手动重启"
-            fi
+    if [[ "$rule_found" == true ]]; then
+        if mv "$temp_library" "$RULES_LIBRARY"; then
+            log_success "已从规则库中删除规则 '$rule_name'"
+            return 0
+        else
+            log_error "规则库更新失败"
+            rm -f "$temp_library"
+            return 1
         fi
     else
-        log_error "规则删除失败"
+        log_warn "在规则库中未找到规则 '$rule_name'"
         rm -f "$temp_library"
         return 1
     fi
+}
 
-    wait_for_user
+# 从状态文件中移除规则的辅助函数
+remove_rule_from_state() {
+    local rule_name="$1"
+    local temp_state="${RULES_STATE}.tmp"
+
+    if [[ -f "$RULES_STATE" ]]; then
+        awk -v rule="$rule_name" '
+        $0 == "  - " rule { next }
+        { print }
+        ' "$RULES_STATE" > "$temp_state" 2>/dev/null
+
+        if [[ -s "$temp_state" ]]; then
+            mv "$temp_state" "$RULES_STATE" 2>/dev/null || rm -f "$temp_state"
+        else
+            rm -f "$temp_state"
+        fi
+    fi
 }
 
 # ===== 并发安全和临时文件管理函数 =====

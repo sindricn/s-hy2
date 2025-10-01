@@ -64,7 +64,10 @@
       "Bash(check_rule_type_conflict:*)",
       "Bash(apply_outbound_rule)",
       "Bash(check_existing_outbound_type:*)",
-      "SlashCommand(/sc:analyze:*)"
+      "SlashCommand(/sc:analyze:*)",
+      "Bash(test_dns_resolution:*)",
+      "Bash(echo $?)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }
