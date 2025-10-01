@@ -526,9 +526,10 @@ show_confirmation_prompt() {
 
 export -f show_operation_result show_conflict_prompt show_confirmation_prompt
 
-# 自动初始化
+# 自动初始化（仅初始化日志，不设置错误陷阱）
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
-    # 被作为模块导入时自动初始化
+    # 被作为模块导入时自动初始化日志
     init_logging
-    setup_error_handling
+    # 不自动调用 setup_error_handling
+    # 让各个脚本根据需要自己调用
 fi
