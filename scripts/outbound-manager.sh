@@ -9,9 +9,9 @@
 set -uo pipefail
 
 # 加载公共库
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$SCRIPT_DIR/common.sh" ]]; then
-    source "$SCRIPT_DIR/common.sh"
+# SCRIPT_DIR 由主脚本定义，此处已移除以避免覆盖
+if [[ -f "$(dirname "${BASH_SOURCE[0]}")/common.sh" ]]; then
+    source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 else
     echo "错误: 无法加载公共库" >&2
     exit 1
