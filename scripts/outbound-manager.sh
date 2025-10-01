@@ -2933,45 +2933,68 @@ delete_outbound_rule_new() {
         fi
     done < <(get_config_outbound_rules)
 
-    # 合并去重规则列表
+    # 合并规则并确定来源
     local all_rules=()
-    local rule_sources=()  # 记录规则来源: library/config/both
+    local rule_sources=()
     local rule_count=0
 
-    # 添加规则库中的规则
+    # 构建规则来源映射
+    declare -A rule_in_library
+    declare -A rule_in_config
+
+    # 标记规则库中的规则
     for rule in "${library_rules[@]}"; do
-        all_rules+=("$rule")
-        rule_sources+=("library")
-        ((rule_count++))
+        rule_in_library["$rule"]=1
     done
 
+    # 标记配置文件中的规则
+    for rule in "${config_rules[@]}"; do
+        rule_in_config["$rule"]=1
+    done
+
+    # 合并所有规则（去重）
+    local all_rule_names=()
+    
+    # 先添加规则库中的规则
+    for rule in "${library_rules[@]}"; do
+        all_rule_names+=("$rule")
+    done
+    
     # 添加配置文件中独有的规则
     for rule in "${config_rules[@]}"; do
-        local found_in_library=false
-        for lib_rule in "${library_rules[@]}"; do
-            if [[ "$rule" == "$lib_rule" ]]; then
-                found_in_library=true
-                # 更新来源为both
-                for i in "${!all_rules[@]}"; do
-                    if [[ "${all_rules[i]}" == "$rule" ]]; then
-                        rule_sources[i]="both"
-                        break
-                    fi
-                done
+        local found=false
+        for existing in "${all_rule_names[@]}"; do
+            if [[ "$rule" == "$existing" ]]; then
+                found=true
                 break
             fi
         done
+        if [[ "$found" == false ]]; then
+            all_rule_names+=("$rule")
+        fi
+    done
 
-        if [[ "$found_in_library" == false ]]; then
-            all_rules+=("$rule")
+    # 为每个规则确定来源
+    for rule in "${all_rule_names[@]}"; do
+        all_rules+=("$rule")
+        ((rule_count++))
+        
+        local in_lib=${rule_in_library[$rule]:-0}
+        local in_conf=${rule_in_config[$rule]:-0}
+        
+        if [[ $in_lib -eq 1 ]] && [[ $in_conf -eq 1 ]]; then
+            rule_sources+=("both")
+        elif [[ $in_lib -eq 1 ]]; then
+            rule_sources+=("library")
+        else
             rule_sources+=("config")
-            ((rule_count++))
         fi
     done
 
     if [[ ${#all_rules[@]} -eq 0 ]]; then
         echo -e "${YELLOW}没有找到任何规则${NC}"
         wait_for_user
+        return
         return
     fi
 
