@@ -53,7 +53,7 @@ init_logging() {
             # Root用户但无法创建系统目录，降级到/tmp
             LOG_DIR="/tmp/s-hy2"
             LOG_FILE="$LOG_DIR/s-hy2.log"
-            mkdir -p "$LOG_DIR" 2>/dev/null
+            mkdir -p "$LOG_DIR" 2>/dev/null || true
         fi
     elif [[ $EUID -ne 0 ]]; then
         # 非Root用户，使用用户目录
@@ -65,15 +65,15 @@ init_logging() {
             # 降级到临时目录
             LOG_DIR="/tmp/s-hy2-$(whoami)"
             LOG_FILE="$LOG_DIR/s-hy2.log"
-            mkdir -p "$LOG_DIR" 2>/dev/null
+            mkdir -p "$LOG_DIR" 2>/dev/null || true
         fi
     fi
 
     # 设置日志文件权限
     if [[ -f "$LOG_FILE" ]]; then
-        chmod 644 "$LOG_FILE" 2>/dev/null
+        chmod 644 "$LOG_FILE" 2>/dev/null || true
     else
-        touch "$LOG_FILE" 2>/dev/null && chmod 644 "$LOG_FILE" 2>/dev/null
+        touch "$LOG_FILE" 2>/dev/null && chmod 644 "$LOG_FILE" 2>/dev/null || true
     fi
 }
 
