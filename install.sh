@@ -76,7 +76,10 @@ check_network_connection() {
 # 检查必要的命令
 check_required_commands() {
     local missing_commands=()
-    local required_commands=("curl" "systemctl")
+    local required_commands=("curl")
+
+    # systemctl 不是必需的（Windows环境下可能没有）
+    # 只检查 curl
 
     for cmd in "${required_commands[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then

@@ -11,10 +11,10 @@ if [[ -z "${SCRIPT_NAME:-}" ]]; then
     readonly SCRIPT_NAME="${0##*/}"
 fi
 if [[ -z "${LOG_DIR:-}" ]]; then
-    readonly LOG_DIR="/var/log/s-hy2"
+    LOG_DIR="/var/log/s-hy2"
 fi
 if [[ -z "${LOG_FILE:-}" ]]; then
-    readonly LOG_FILE="$LOG_DIR/s-hy2.log"
+    LOG_FILE="$LOG_DIR/s-hy2.log"
 fi
 if [[ -z "${PID_FILE:-}" ]]; then
     readonly PID_FILE="/var/run/s-hy2.pid"
