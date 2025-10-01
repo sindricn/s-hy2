@@ -2873,7 +2873,7 @@ remove_rule_from_config() {
     local rule_found=false
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*${rule_name}[[:space:]]*$ ]]; then
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*name:[[:space:]]*[\"']*${rule_name}[\"']*[[:space:]]*$ ]]; then
             in_target_rule=true
             rule_found=true
             continue
