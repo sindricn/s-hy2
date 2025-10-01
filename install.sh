@@ -173,18 +173,18 @@ verify_installation() {
 
     local version
     # 尝试多种方式获取版本号
-    version=$(hysteria version 2>/dev/null | head -1)
+    version=$(hysteria version 2>/dev/null | head -1 || true)
 
     if [[ -z "$version" ]]; then
-        version=$(hysteria --version 2>/dev/null | head -1)
+        version=$(hysteria --version 2>/dev/null | head -1 || true)
     fi
     if [[ -z "$version" ]]; then
-        version=$(hysteria -v 2>/dev/null | head -1)
+        version=$(hysteria -v 2>/dev/null | head -1 || true)
     fi
 
     # 提取版本号（支持多种格式）
     if [[ -n "$version" ]]; then
-        version=$(echo "$version" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        version=$(echo "$version" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
         echo "✓ 安装完成: $version"
     else
         echo "✓ 安装完成"
@@ -262,20 +262,20 @@ install_hysteria2() {
     if command -v hysteria &> /dev/null; then
         local version
         # 尝试多种方式获取版本号
-        version=$(hysteria version 2>/dev/null | head -1)
+        version=$(hysteria version 2>/dev/null | head -1 || true)
 
         # 如果第一种方式失败，尝试其他方式
         if [[ -z "$version" ]]; then
-            version=$(hysteria --version 2>/dev/null | head -1)
+            version=$(hysteria --version 2>/dev/null | head -1 || true)
         fi
         if [[ -z "$version" ]]; then
-            version=$(hysteria -v 2>/dev/null | head -1)
+            version=$(hysteria -v 2>/dev/null | head -1 || true)
         fi
 
         # 提取版本号（支持多种格式）
         if [[ -n "$version" ]]; then
             # 尝试提取 v2.x.x 或 2.x.x 格式
-            version=$(echo "$version" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            version=$(echo "$version" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
         fi
 
         echo -e "${YELLOW}检测到已安装的 Hysteria2: ${version:-未知版本}${NC}"
