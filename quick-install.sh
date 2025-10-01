@@ -146,14 +146,16 @@ download_scripts() {
 
     local failed_downloads=0
 
-    # 下载主脚本
+    # 下载主脚本 (必需文件)
     if ! download_file "$RAW_URL/hy2-manager.sh" "hy2-manager.sh" "主脚本"; then
-        ((failed_downloads++))
+        echo -e "${RED}错误: 主脚本下载失败,无法继续安装${NC}"
+        exit 1
     fi
 
-    # 下载主安装脚本(在根目录)
+    # 下载主安装脚本 (必需文件,在根目录)
     if ! download_file "$RAW_URL/install.sh" "install.sh" "主安装脚本"; then
-        ((failed_downloads++))
+        echo -e "${RED}错误: 主安装脚本下载失败,无法继续安装${NC}"
+        exit 1
     fi
 
     # 下载功能脚本
